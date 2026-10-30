@@ -482,7 +482,11 @@ protects nothing, and review rejects it.
 ### 8.2 Mutation
 
 **R-8.2.1** `scripts/mutation.mjs` lists named mutants. Each one is a substitution that breaks one
-stated property, together with the suites that must fail. A surviving mutant fails CI.
+stated property, together with the suites that must fail. A surviving mutant fails CI. The suites
+pass before any mutant is applied. A mutant is killed when any of its tests fails; a run that
+outlives its time limit counts as killed and is reported as a timeout. A run in which a file fails
+to load or no test runs proves nothing and stops the gate. *`tests/mutation-run.test.ts` checks
+these verdicts.*
 
 **R-8.2.2** Every module in `src` has at least one mutant, except logic-free modules listed in
 `EXEMPT`. *Enforced by the script.*

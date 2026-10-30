@@ -16,12 +16,15 @@
  *
  * A mutant no input can tell apart from the original is equivalent: remove it
  * and say why in the pull request.
+ *
+ * The suites must pass before any mutant is applied. `mutation-run.mjs` gives
+ * each run its verdict (R-8.2.1); `tests/mutation-run.test.ts` checks them.
  */
 import { cp, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawnSync } from 'node:child_process';
+import { runSuites } from './mutation-run.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -120,8 +123,9 @@ try {
 	for (const path of ['src', 'tests']) await cp(join(root, path), join(sandbox, path), { recursive: true });
 	for (const path of ['package.json', 'tsconfig.json', 'vitest.config.ts']) await cp(join(root, path), join(sandbox, path));
 	await symlink(join(root, 'node_modules'), join(sandbox, 'node_modules'), 'dir');
-	const vitest = join(root, 'node_modules', 'vitest', 'vitest.mjs');
 	const survivors = [];
+	const baseline = await runSuites(sandbox, [...new Set(mutants.flatMap((mutant) => mutant.tests))]);
+	if (baseline.verdict !== 'passed') throw new Error(`Mutation baseline is not green (${baseline.verdict}); fix the tests first.\n${baseline.output}`);
 
 	for (const mutant of mutants) {
 		const path = join(sandbox, mutant.file);
@@ -131,19 +135,17 @@ try {
 			throw new Error(`Mutation target must occur exactly once: ${mutant.name}`);
 		}
 		await writeFile(path, original.replace(mutant.from, mutant.to));
-		const result = spawnSync(process.execPath, [vitest, 'run', ...mutant.tests], {
-			cwd: sandbox,
-			env: { ...process.env, FORCE_COLOR: '0' },
-			encoding: 'utf8',
-			timeout: 45_000
-		});
-		await writeFile(path, original);
-		if (result.error !== undefined && result.error.code !== 'ETIMEDOUT') throw result.error;
-		if (result.status === 0) {
-			survivors.push({ mutant, output: `${result.stdout}${result.stderr}` });
+		let result;
+		try {
+			result = await runSuites(sandbox, mutant.tests);
+		} finally {
+			await writeFile(path, original);
+		}
+		if (result.verdict === 'passed') {
+			survivors.push({ mutant, output: result.output });
 			console.error(`SURVIVED  ${mutant.name}`);
 		} else {
-			console.log(`KILLED    ${mutant.name}`);
+			console.log(`${result.verdict === 'timeout' ? 'TIMEOUT ' : 'KILLED  '}  ${mutant.name}`);
 		}
 	}
 
