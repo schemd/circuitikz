@@ -545,8 +545,9 @@ in `scripts/check-bundle-size.mjs` saying what was added and how many bytes it m
 
 ### 8.6 Packaging and runtime
 
-**R-8.6.1** `tests/packaging.test.ts` holds. Every `src` module is either an `exports` subpath or
-listed as internal.
+**R-8.6.1** `tests/packaging.test.ts` holds. Every `src` module, nested ones included, is either
+an `exports` subpath or listed as internal. `src/index.ts` is the `.` entry, and a nested
+`src/<dir>/index.ts` is the `./<dir>` subpath.
 
 **R-8.6.2** CI builds the package, runs `npm pack --dry-run`, and imports the built `dist/index.js`
 in Node.js 24 as a smoke test. From M2 on, the smoke test converts the issue example from the built
