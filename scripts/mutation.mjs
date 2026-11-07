@@ -33,6 +33,118 @@ const EXEMPT = new Set(['src/ast.ts', 'src/index.ts', 'src/types.ts']);
 
 const mutants = [
 	{
+		name: 'a line end taken by a comment is not a space',
+		file: 'src/lexer.ts',
+		from: 'if (!comment) space = true;',
+		to: 'space = true;',
+		tests: ['tests/lexer.test.ts', 'tests/frontend.test.ts']
+	},
+	{
+		name: 'leading blanks after a line end are not a space',
+		file: 'src/lexer.ts',
+		from: 'if (!lineStart) space = true;',
+		to: 'space = true;',
+		tests: ['tests/lexer.test.ts', 'tests/frontend.test.ts']
+	},
+	{
+		name: 'blanks before a comment are a space',
+		file: 'src/lexer.ts',
+		from: 'if (!lineStart) space = true;',
+		to: '',
+		tests: ['tests/lexer.test.ts', 'tests/frontend.test.ts']
+	},
+	{
+		name: 'a line end after a comment line still counts on the next line',
+		file: 'src/lexer.ts',
+		from: "comment = false;\n\t\t\tlineStart = true;",
+		to: "lineStart = true;",
+		tests: ['tests/lexer.test.ts']
+	},
+	{
+		name: 'a joined gap is no word boundary',
+		file: 'src/lexer.ts',
+		from: 'token.start > end && token.joined !== true',
+		to: 'token.start > end',
+		tests: ['tests/frontend.test.ts', 'tests/rejections.test.ts']
+	},
+	{
+		name: 'completed statements survive a missing environment end',
+		file: 'src/parser.ts',
+		from: "this.token); return { span, keys, statements }; }",
+		to: "this.token); return undefined; }",
+		tests: ['tests/rejections.test.ts']
+	},
+	{
+		name: 'cycle after to[...] is rejected',
+		file: 'src/coordinates.ts',
+		from: "else if (element.operation === 'to') afterTo = true;",
+		to: "else if (element.operation === 'to') afterTo = false;",
+		tests: ['tests/frontend.test.ts', 'tests/rejections.test.ts']
+	},
+	{
+		name: 'cycle closes the current subpath',
+		file: 'src/coordinates.ts',
+		from: 'if (element.kind === \'move\') { first = point;',
+		to: 'if (element === statement.elements[0]) { first = point;',
+		tests: ['tests/frontend.test.ts']
+	},
+	{
+		name: 'cycles use the first path point',
+		file: 'src/coordinates.ts',
+		from: 'if (at.kind === \'cycle\') return first;',
+		to: 'if (at.kind === \'cycle\') return base;',
+		tests: ['tests/frontend.test.ts']
+	},
+	{
+		name: 'duplicate names are diagnosed',
+		file: 'src/coordinates.ts',
+		from: 'if (names.has(name)) reference',
+		to: 'if (false) reference',
+		tests: ['tests/frontend.test.ts']
+	},
+	{
+		name: 'plus leaves the relative reference unchanged',
+		file: 'src/coordinates.ts',
+		from: 'element.at.kind !== \'point\' || element.at.mode !== \'+\'',
+		to: 'true',
+		tests: ['tests/frontend.test.ts']
+	},
+	{
+		name: 'relative increments use their reference',
+		file: 'src/coordinates.ts',
+		from: 'at.x + base.x',
+		to: 'at.x',
+		tests: ['tests/frontend.test.ts']
+	},
+	{
+		name: 'relative sums reject overflow',
+		file: 'src/coordinates.ts',
+		from: '!Number.isSafeInteger(x) || !Number.isSafeInteger(y)',
+		to: 'false',
+		tests: ['tests/frontend.test.ts']
+	},
+	{
+		name: 'undefined names keep their precise diagnostic',
+		file: 'src/coordinates.ts',
+		from: 'if (!names.has(at.name)) reference',
+		to: 'if (false) reference',
+		tests: ['tests/frontend.test.ts']
+	},
+	{
+		name: 'a coordinate built on a failed point is still defined',
+		file: 'src/coordinates.ts',
+		from: 'define(statement.name, resolve(statement.at, base, first), statement.span);',
+		to: 'const point = resolve(statement.at, base, first); if (point !== undefined) define(statement.name, point, statement.span);',
+		tests: ['tests/frontend.test.ts']
+	},
+	{
+		name: 'an inline name on a failed point is still defined',
+		file: 'src/coordinates.ts',
+		from: 'define(element.name, current, element.span);',
+		to: 'if (current !== undefined) define(element.name, current, element.span);',
+		tests: ['tests/frontend.test.ts']
+	},
+	{
 		name: 'multiline spans stay on the first line',
 		file: 'src/lexer.ts',
 		from: 'first.line === last.line ? last.endColumn : first.endColumn',
@@ -224,7 +336,7 @@ const mutants = [
 	{
 		name: 'component option order and word boundaries survive',
 		file: 'src/lexer.ts',
-		from: 'if (end >= 0 && token.start > end) parts.push(\' \');',
+		from: 'if (end >= 0 && token.start > end && token.joined !== true) parts.push(\' \');',
 		to: '',
 		tests: ['tests/frontend.test.ts']
 	},

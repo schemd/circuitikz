@@ -22,5 +22,13 @@
     "column": 13,
     "endColumn": 19,
     "severity": "error"
+  },
+  {
+    "code": "reference",
+    "message": "Coordinate missing is not defined; define it before using it.",
+    "line": 5,
+    "column": 7,
+    "endColumn": 16,
+    "severity": "error"
   }
 ]

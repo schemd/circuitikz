@@ -182,7 +182,8 @@ class Parser {
 			if (statement === undefined) this.recover();
 			else statements.push(statement);
 		}
-		if (!this.delimiter('\\end')) { syntax(this.diagnostics, '\\end{circuitikz}', this.token); return undefined; }
+		// Every statement read so far is complete, so later phases still report on it (R-3.4).
+		if (!this.delimiter('\\end')) { syntax(this.diagnostics, '\\end{circuitikz}', this.token); return { span, keys, statements }; }
 		this.cursor += 4;
 		if (this.token.kind !== 'eof') environment(this.diagnostics, this.token);
 		return { span, keys, statements };

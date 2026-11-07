@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { convertCircuitikz } from '../src/index.js';
 import { Diagnostics } from '../src/diagnostics.js';
-import { decimal, coordinate, isName } from '../src/coordinates.js';
+import { decimal, coordinate, isName, resolveCoordinates } from '../src/coordinates.js';
 import { scan, textOf, through } from '../src/lexer.js';
 import { optionsOf } from '../src/options.js';
 import { parse } from '../src/parser.js';
@@ -14,7 +14,8 @@ function read(text: string) {
 	const diagnostics = new Diagnostics(false);
 	const tokens = scan(text, diagnostics);
 	const tree = parse(tokens, diagnostics);
-	return { diagnostics: diagnostics.sorted(), tree, tokens };
+	const segments = tree === undefined ? [] : resolveCoordinates(tree, diagnostics);
+	return { diagnostics: diagnostics.sorted(), tree, segments, tokens };
 }
 const span = { start: 0, end: 1, line: 1, column: 1, endColumn: 2 };
 
@@ -70,15 +71,12 @@ describe('exact decimals and names', () => {
 	});
 });
 
-describe('span-aware parser', () => {
-	it('reads literal numeric, hyphenated, spaced and Unicode TikZ names', () => {
+describe('span-aware parser and resolver', () => {
+	it('resolves literal numeric, hyphenated, spaced and Unicode TikZ names', () => {
 		for (const name of ['1', 'top-A', 'start of chart', 'α😀']) {
 			const result = read(wrap(`\\coordinate (${name}) at (1,2);\n\\draw (${name}) -- ++(1,0);`));
 			expect(result.diagnostics).toEqual([]);
-			expect(result.tree?.statements).toMatchObject([
-				{ kind: 'coordinate', name, at: { kind: 'point', x: 100, y: 200, mode: 'absolute' } },
-				{ kind: 'draw', elements: [{ kind: 'move', at: { kind: 'reference', name } }, { kind: 'segment', at: { x: 100, y: 0, mode: '++' } }] }
-			]);
+			expect(result.segments.map(({ from, to }) => [from, to])).toEqual([[{ x: 100, y: 200 }, { x: 200, y: 200 }]]);
 		}
 	});
 	it('keeps AST operations, names, options and exact coordinates', () => {
@@ -90,6 +88,72 @@ describe('span-aware parser', () => {
 			{ kind: 'segment', operation: 'to', keys: [{ name: 'R' }, { name: 'l' }], at: { x: 200, y: 0, mode: '++' } },
 			{ kind: 'segment', operation: '|-' }, { kind: 'segment', operation: '-|' }
 		] });
+		expect(result.segments.map(({ from, to }) => [from, to])).toEqual([
+			[{ x: 100, y: -250 }, { x: 300, y: -250 }],
+			[{ x: 300, y: -250 }, { x: 300, y: -150 }],
+			[{ x: 300, y: -150 }, { x: 100, y: -250 }]
+		]);
+	});
+
+	it('rejects cycle after to[...], which CircuiTikZ closes inside the component drawing', () => {
+		const message = 'cycle after to[...] closes inside that component\'s drawing in CircuiTikZ; end the path at an explicit coordinate instead.';
+		for (const operation of ['to[R]', 'to[short]']) {
+			const result = read(wrap(`\\draw (0,0) ${operation} (2,0) -- (2,2) -- cycle;`));
+			expect(result.tree?.statements[0]).toMatchObject({ elements: [{}, {}, {}, { kind: 'segment', operation: '--', at: { kind: 'cycle' } }] });
+			expect(result.diagnostics).toEqual([{ code: 'unsupported', severity: 'error', message, line: 2, column: 32 + operation.length, endColumn: 37 + operation.length }]);
+			expect(result.segments).toHaveLength(2);
+		}
+		// A move-to starts a fresh subpath of wires, which cycle closes exactly.
+		const fresh = read(wrap('\\draw (0,0) to[R] (2,0) (2,1) -- (2,2) -- (0,2) -- cycle;'));
+		expect(fresh.diagnostics).toEqual([]);
+		expect(fresh.segments.at(-1)).toMatchObject({ from: { x: 0, y: 200 }, to: { x: 200, y: 100 } });
+	});
+
+	it('distinguishes + from ++ and moves the pen to both', () => {
+		const plus = read(wrap('\\draw (0,0) -- +(1,0) -- +(0,1);'));
+		const increment = read(wrap('\\draw (0,0) -- ++(1,0) -- ++(0,1);'));
+		expect(plus.segments.map(({ to }) => to)).toEqual([{ x: 100, y: 0 }, { x: 0, y: 100 }]);
+		expect(increment.segments.map(({ to }) => to)).toEqual([{ x: 100, y: 0 }, { x: 100, y: 100 }]);
+		expect(plus.segments[1]?.from).toEqual({ x: 100, y: 0 });
+	});
+
+	it('resolves inline names, moves and cycles without edges for moves', () => {
+		expect(read(wrap('\\draw (0,0) -- (2,0) -- cycle;')).segments.at(-1)?.to).toEqual({ x: 0, y: 0 });
+		const result = read(wrap('\\draw (1,1) coordinate (A) -- ++(1,0) (0,0) -- (A) -- cycle;'));
+		expect(result.diagnostics).toEqual([]);
+		// `cycle` closes the current subpath, which the move to (0,0) started.
+		expect(result.segments.map(({ from, to }) => [from, to])).toEqual([
+			[{ x: 100, y: 100 }, { x: 200, y: 100 }],
+			[{ x: 0, y: 0 }, { x: 100, y: 100 }],
+			[{ x: 100, y: 100 }, { x: 0, y: 0 }]
+		]);
+	});
+
+	it('detects relative arithmetic overflow on either axis', () => {
+		for (const [point, offset] of [['90071992547409.91,0', '0.01,0'], ['0,-90071992547409.91', '0,-0.01']]) {
+			const result = read(wrap(`\\draw (${point}) -- ++(${offset});`));
+			expect(result.segments).toEqual([]);
+			expect(result.diagnostics).toMatchObject([{ code: 'limit', message: 'The coordinate exceeds the exact integer range; use smaller coordinates or relative offsets.' }]);
+		}
+	});
+
+	it('reports independent missing names within one path and resumes at an absolute point', () => {
+		const result = read(wrap('\\draw (missing) coordinate (A) -- +(1,0) -- (other) -- (0,0) -- ++(2,0);'));
+		expect(result.diagnostics).toEqual([
+			{ code: 'reference', severity: 'error', message: 'Coordinate missing is not defined; define it before using it.', line: 2, column: 7, endColumn: 16 },
+			{ code: 'reference', severity: 'error', message: 'Coordinate other is not defined; define it before using it.', line: 2, column: 45, endColumn: 52 }
+		]);
+		expect(result.segments.map(({ from, to }) => [from, to])).toEqual([[{ x: 0, y: 0 }, { x: 200, y: 0 }]]);
+	});
+
+	it('reports undefined and duplicate names at their definitions and uses', () => {
+		const result = read(wrap('\\coordinate (A) at (0,0);\n\\coordinate (A) at (1,1);\n\\coordinate (B) at (missing);\n\\draw (other) -- (0,0);\n\\draw (0,0) coordinate (A);'));
+		expect(result.diagnostics).toEqual([
+			{ code: 'reference', severity: 'error', message: 'Coordinate A is already defined; give the second definition a different name.', line: 3, column: 14, endColumn: 15 },
+			{ code: 'reference', severity: 'error', message: 'Coordinate missing is not defined; define it before using it.', line: 4, column: 20, endColumn: 29 },
+			{ code: 'reference', severity: 'error', message: 'Coordinate other is not defined; define it before using it.', line: 5, column: 7, endColumn: 14 },
+			{ code: 'reference', severity: 'error', message: 'Coordinate A is already defined; give the second definition a different name.', line: 6, column: 25, endColumn: 26 }
+		]);
 	});
 
 	it('keeps a move in the middle of a path as a move, and cycle as a destination', () => {
@@ -102,12 +166,94 @@ describe('span-aware parser', () => {
 		] });
 	});
 
+	it('reports an unresolved point once, not again at each name built on it', () => {
+		const missing = { code: 'reference', severity: 'error', message: 'Coordinate missing is not defined; define it before using it.', line: 2, column: 20, endColumn: 29 };
+		expect(read(wrap('\\coordinate (A) at (missing);\n\\draw (A) -- +(1,0) coordinate (B);\n\\draw (B) -- (2,0);')).diagnostics).toEqual([missing]);
+		// A name defined from an unresolved point is still defined, so a second definition is reported.
+		expect(read(wrap('\\coordinate (A) at (missing);\n\\coordinate (A) at (0,0);')).diagnostics).toEqual([
+			missing,
+			{ code: 'reference', severity: 'error', message: 'Coordinate A is already defined; give the second definition a different name.', line: 3, column: 14, endColumn: 15 }
+		]);
+		const overflow = read(wrap('\\draw (90071992547409.91,0) -- ++(0.01,0) coordinate (O);\n\\draw (O) -- (0,0);'));
+		expect(overflow.diagnostics).toEqual([{ code: 'limit', severity: 'error', message: 'The coordinate exceeds the exact integer range; use smaller coordinates or relative offsets.', line: 2, column: 32, endColumn: 42 }]);
+	});
+
+	// Each expectation was read back from TikZ (tectonic, \pgfgetlastxy after each point).
+	it.each([
+		{ name: 'a relative \\coordinate starts from the origin', tex: '\\coordinate (P) at +(1,0);\n\\draw (P) -- (0,0);', from: { x: 100, y: 0 } },
+		{ name: 'a statement does not inherit the previous one', tex: '\\draw (3,3) -- (4,4);\n\\coordinate (P) at ++(1,2);\n\\draw (P) -- (0,0);', from: { x: 100, y: 200 } },
+		{ name: 'a path may start with a relative point', tex: '\\draw +(2,0) -- (5,5);', from: { x: 200, y: 0 } },
+		{ name: '++ after cycle starts from the subpath start', tex: '\\draw (0,0) -- (1,0) -- (1,1) -- cycle -- ++(0,2);', to: { x: 0, y: 200 } },
+		{ name: '+ after cycle keeps the subpath start as reference', tex: '\\draw (0,0) -- (1,0) -- (1,1) -- cycle -- +(0,2) -- +(1,0);', to: { x: 100, y: 0 } },
+		{ name: 'coordinate (name) does not move the reference', tex: '\\draw (2,2) coordinate (N) -- +(1,0) -- +(0,1);', to: { x: 200, y: 300 } },
+		{ name: 'a move resets the reference', tex: '\\draw (0,0) -- ++(1,0) (5,5) -- +(1,1);', to: { x: 600, y: 600 } },
+		{ name: 'runs of spaces and a line break in a name are one space', tex: '\\coordinate (start of chart) at (7,7);\n\\draw (start   of chart) -- (start\nof chart);', from: { x: 700, y: 700 }, to: { x: 700, y: 700 } }
+	])('resolves as TikZ does: $name', ({ tex, from, to }) => {
+		const result = read(wrap(tex));
+		expect(result.diagnostics).toEqual([]);
+		if (from !== undefined) expect(result.segments.at(-1)?.from).toEqual(from);
+		if (to !== undefined) expect(result.segments.at(-1)?.to).toEqual(to);
+	});
+
+	const notDefined = (name: string, line: number, column: number) => ({ code: 'reference', severity: 'error', message: `Coordinate ${name} is not defined; define it before using it.`, line, column, endColumn: column + name.length + 2 });
+	it.each([
+		{ name: 'a use before a later definition in the same path', tex: '\\draw (A) -- (0,0) coordinate (A) -- (1,0);', diagnostics: [notDefined('A', 2, 7)], segments: [[{ x: 0, y: 0 }, { x: 100, y: 0 }]] },
+		{ name: 'a use before a later \\coordinate', tex: '\\draw (B) -- (0,0);\n\\coordinate (B) at (1,1);\n\\draw (B) -- (0,0);', diagnostics: [notDefined('B', 2, 7)], segments: [[{ x: 100, y: 100 }, { x: 0, y: 0 }]] },
+		{ name: 'relative points after an unresolved start, until an absolute one', tex: '\\draw (missing) -- +(1,0) -- ++(1,0) -- (2,2) -- +(1,0);', diagnostics: [notDefined('missing', 2, 7)], segments: [[{ x: 200, y: 200 }, { x: 300, y: 200 }]] },
+		{ name: 'cycle back to an unresolved subpath start', tex: '\\draw (missing) -- (1,0) -- (1,1) -- cycle;', diagnostics: [notDefined('missing', 2, 7)], segments: [[{ x: 100, y: 0 }, { x: 100, y: 100 }]] },
+		{ name: 'cycle straight after the move-to', tex: '\\draw (1,1) -- cycle;', diagnostics: [], segments: [[{ x: 100, y: 100 }, { x: 100, y: 100 }]] },
+		{ name: 'a corner operation to a relative point', tex: '\\draw (1,0) |- ++(1,1) -| +(-1,1);', diagnostics: [], segments: [[{ x: 100, y: 0 }, { x: 200, y: 100 }], [{ x: 200, y: 100 }, { x: 100, y: 200 }]] },
+		{ name: 'a Unicode name, defined inline and reused', tex: '\\draw (1,2) coordinate (α😀) -- (0,0);\n\\draw (α😀) -- ++(1,0);', diagnostics: [], segments: [[{ x: 100, y: 200 }, { x: 0, y: 0 }], [{ x: 100, y: 200 }, { x: 200, y: 200 }]] }
+	])('resolution edge case: $name', ({ tex, diagnostics, segments }) => {
+		const result = read(wrap(tex));
+		expect(result.diagnostics).toEqual(diagnostics);
+		expect(result.segments.map(({ from, to }) => [from, to])).toEqual(segments);
+	});
+
+	// Read back from TikZ (tectonic) with both (AB) at (1,2) and (A B) at (3,4) defined.
+	it.each([
+		{ name: 'a comment joins the two lines', tex: '(A% comment\nB)', at: { x: 100, y: 200 } },
+		{ name: 'leading blanks after a comment are dropped', tex: '(A% comment\n   \tB)', at: { x: 100, y: 200 } },
+		{ name: 'two comment lines still join', tex: '(A%\n%\nB)', at: { x: 100, y: 200 } },
+		{ name: 'a space before the comment is kept', tex: '(A % comment\nB)', at: { x: 300, y: 400 } },
+		{ name: 'a plain line break is a space', tex: '(A\nB)', at: { x: 300, y: 400 } }
+	])('reads a name across lines as TeX does: $name', ({ tex, at }) => {
+		const result = read(wrap(`\\coordinate (AB) at (1,2);\n\\coordinate (A B) at (3,4);\n\\draw ${tex} -- (0,0);`));
+		expect(result.diagnostics).toEqual([]);
+		expect(result.segments.at(-1)?.from).toEqual(at);
+	});
+
+	it('joins a commented line break in inline names and option keys too', () => {
+		const result = read(wrap('\\draw (1,1) coordinate (A%\nB) -- (0,0);\n\\draw (AB) -- (2,2);\n\\draw (0,0) to[american%\n resistor] (1,0);'));
+		expect(result.diagnostics).toEqual([]);
+		expect(result.segments[1]?.from).toEqual({ x: 100, y: 100 });
+		expect(result.tree?.statements[2]).toMatchObject({ elements: [{}, { keys: [{ name: 'americanresistor' }] }] });
+	});
+
+	it.each([
+		{ name: 'a duplicate name', tex: '\\coordinate (A) at (0,0);\n\\coordinate (A) at (1,1);', messages: ['Coordinate A is already defined; give the second definition a different name.'] },
+		{ name: 'cycle after to[...]', tex: '\\draw (0,0) to[R] (1,0) -- cycle;', messages: ['cycle after to[...] closes inside that component\'s drawing in CircuiTikZ; end the path at an explicit coordinate instead.'] },
+		{ name: 'a relative overflow', tex: '\\draw (90071992547409.91,0) -- ++(0.01,0);', messages: ['The coordinate exceeds the exact integer range; use smaller coordinates or relative offsets.'] },
+		// An unfinished last statement is dropped, so its names are not resolved and add nothing.
+		{ name: 'an unfinished last statement', tex: '\\draw (missing) -- (0,0', messages: ['Expected ); correct the statement before converting it.'] }
+	])('keeps coordinate diagnostics when the environment end is missing: $name', ({ tex, messages }) => {
+		const result = read(`\\begin{circuitikz}\n${tex}\n`);
+		expect(result.diagnostics.map((d) => d.message)).toEqual([...messages, 'Expected \\end{circuitikz}; correct the statement before converting it.']);
+	});
+
+	it('keeps names case-sensitive', () => {
+		expect(read(wrap('\\coordinate (a) at (1,1);\n\\draw (A) -- (0,0);')).diagnostics).toEqual([
+			{ code: 'reference', severity: 'error', message: 'Coordinate A is not defined; define it before using it.', line: 3, column: 7, endColumn: 10 }
+		]);
+	});
+
 	it('does not let errors in one statement hide the next statement', () => {
-		const result = read(wrap('\\draw (0,0) to[R] (1,;\n\\node {a;b};\n\\draw (0,0) arc (1,1);'));
+		const result = read(wrap('\\draw (0,0) to[R] (1,;\n\\node {a;b};\n\\draw (0,0) arc (1,1);\n\\coordinate (A) at (missing);'));
 		expect(result.diagnostics).toEqual([
 			{ code: 'syntax', severity: 'error', message: 'Expected ); correct the statement before converting it.', line: 2, column: 22, endColumn: 23 },
 			{ code: 'unsupported', severity: 'error', message: '\\node is not supported; use the documented CircuiTikZ subset instead.', line: 3, column: 1, endColumn: 6 },
-			{ code: 'unsupported', severity: 'error', message: 'arc is not supported; use the documented CircuiTikZ subset instead.', line: 4, column: 13, endColumn: 16 }
+			{ code: 'unsupported', severity: 'error', message: 'arc is not supported; use the documented CircuiTikZ subset instead.', line: 4, column: 13, endColumn: 16 },
+			{ code: 'reference', severity: 'error', message: 'Coordinate missing is not defined; define it before using it.', line: 5, column: 20, endColumn: 29 }
 		]);
 	});
 
@@ -136,7 +282,7 @@ describe('span-aware parser', () => {
 		'\\draw (0,0) to[=R] (1,0);', '\\coordinate A at (0,0);', '\\coordinate (A.north) at (0,0);',
 		'\\coordinate (A at (0,0);', '\\coordinate (A) (0,0);', '\\coordinate (A) at foo;',
 		'\\draw (0,0) coordinate (A.north);', '\\draw (0,0) coordinate A;', '\\draw (0,0) -- ((0,0));',
-		'\\draw (0,0) -- (0.001,0);',
+		'\\draw (0,0) -- (0.001,0);', '\\draw (0,0) to[R] (x);', '\\draw (0,0) -- (x);',
 		'\\draw (0,0) \\fill {};', '\\draw (0,0) -- (1,0) \\draw (0,0);', '\\node }{a;b};'
 		, '\\draw ;', '\\draw (0,0) (bad.anchor);', '\\coordinate ('
 		, '\\draw cycle;', '\\coordinate (A) at cycle;'
@@ -196,6 +342,10 @@ describe('span-aware parser', () => {
 	});
 
 	it('resynchronises at the next statement after a missing semicolon', () => {
+		expect(read(wrap('\\draw (0,0) -- (1,0)\n\\draw (0,0) -- (x);')).diagnostics).toEqual([
+			{ code: 'syntax', severity: 'error', message: 'Expected ; at the end of the statement; correct the statement before converting it.', line: 2, column: 21, endColumn: 21 },
+			{ code: 'reference', severity: 'error', message: expect.stringContaining('x'), line: 3, column: 16, endColumn: 19 }
+		]);
 		expect(read(wrap('\\draw (0,0) -- (1,0)\n\\node {x};')).diagnostics).toEqual([
 			{ code: 'syntax', severity: 'error', message: 'Expected ; at the end of the statement; correct the statement before converting it.', line: 2, column: 21, endColumn: 21 },
 			{ code: 'unsupported', severity: 'error', message: '\\node is not supported; use the documented CircuiTikZ subset instead.', line: 3, column: 1, endColumn: 6 }
@@ -264,9 +414,9 @@ describe('public M1 API', () => {
 	it('is repeatable and keeps conversions independent', () => {
 		const input = wrap('\\coordinate (A) at (0,0);');
 		const first = convertCircuitikz(input);
-		convertCircuitikz(wrap('\\draw (0,0) -- (1,0)'));
+		convertCircuitikz(wrap('\\draw (A);'));
 		expect(convertCircuitikz(input)).toEqual(first);
-		expect(convertCircuitikz(wrap('\\draw (0,0) -- (1,0)')).diagnostics[0]?.code).toBe('syntax');
+		expect(convertCircuitikz(wrap('\\draw (A);')).diagnostics[0]?.code).toBe('reference');
 	});
 
 	it('validates options, including symbols and non-enumerable unknown keys', () => {

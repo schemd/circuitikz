@@ -21,8 +21,8 @@ const BUDGETS = [
 		module: '../src/index.ts',
 		entry: (path) => `import * as converter from ${JSON.stringify(path)};globalThis.schemdCircuitikz=converter;`,
 		/* M1's budget from R-8.5.4. 0.0.0 measured 538 B gzip / 455 B brotli. The
-		   parser, coordinate literals, host options and convertCircuitikz measure
-		   4186 B gzip / 3716 B brotli; the coordinate resolver still has to fit. */
+		   parser, coordinate literals, host options and convertCircuitikz measured
+		   4186 B gzip / 3716 B brotli; with the coordinate resolver, 4705 B / 4206 B. */
 		maxGzipBytes: 5 * 1024,
 		maxBrotliBytes: 5 * 1024
 	}

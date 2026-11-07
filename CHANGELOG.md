@@ -12,7 +12,9 @@ Written for someone deciding whether to upgrade. Sections: `Fixed`, `Added`, `Re
 - `convertCircuitikz(tex, options?)` parses one `circuitikz` environment and reports every problem
   it finds, with its line and column: unsupported statements, keys and coordinate forms, syntax
   errors, excess decimal precision and resource limits. After a malformed statement it carries on at
-  the next `;`. It doesn't convert yet: input with no problem gets one `unsupported` error saying so.
+  the next `;`. It resolves named coordinates, `+`/`++` and `cycle` as TikZ does, and reports an
+  undefined or duplicate name, `cycle` after a `to[...]`, and a relative point that overflows. A name
+  built on a point that already failed doesn't repeat that error where it is used. It doesn't convert yet: input with no problem gets one `unsupported` error saying so.
   Options are `title`, `strict` (presentation warnings become errors) and `maxSourceLength`.
 - The topology oracle: `connectivityOf`, `connectivityDifference` and `canonical` compare a schemd
   netlist with the connectivity a CircuiTikZ circuit describes, with junctions left out.

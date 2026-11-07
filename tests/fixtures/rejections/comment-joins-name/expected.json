@@ -1,0 +1,10 @@
+[
+  {
+    "code": "reference",
+    "message": "Coordinate A B is not defined; define it before using it.",
+    "line": 5,
+    "column": 7,
+    "endColumn": 12,
+    "severity": "error"
+  }
+]

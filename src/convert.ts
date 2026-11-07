@@ -1,3 +1,4 @@
+import { resolveCoordinates } from './coordinates.js';
 import { Diagnostics, limit, pending, presentation, unsupported } from './diagnostics.js';
 import { scan } from './lexer.js';
 import { optionsOf } from './options.js';
@@ -30,7 +31,10 @@ export function convertCircuitikz(source: string, options?: ConvertCircuitikzOpt
 		const tokens = scan(source, diagnostics);
 		if (diagnostics.items.length === 0) {
 			const tree = parse(tokens, diagnostics, (keys, environment) => keysOf(keys, diagnostics, environment));
-			if (tree !== undefined && !diagnostics.items.some((item) => item.severity === 'error')) pending(diagnostics, tree.span);
+			if (tree !== undefined) {
+				resolveCoordinates(tree, diagnostics);
+				if (!diagnostics.items.some((item) => item.severity === 'error')) pending(diagnostics, tree.span);
+			}
 		}
 	}
 	return { ok: false, source: undefined, fence: undefined, sourceMap: [], diagnostics: diagnostics.sorted() };

@@ -38,6 +38,23 @@ describe('scanner', () => {
 		]);
 	});
 
+	// TeX drops a comment with its line end, and the next line's leading blanks, so no space is left.
+	it.each([
+		{ text: 'A% c\nB', joined: true },
+		{ text: 'A% c\n  \tB', joined: true },
+		{ text: 'A%\n%\nB', joined: true },
+		{ text: 'A% c\r\nB', joined: true },
+		{ text: 'A % c\nB', joined: false },
+		{ text: 'A\nB', joined: false },
+		{ text: 'A B', joined: false },
+		{ text: 'A% c\n\nB', joined: false }
+	])('marks a gap with no TeX space as joined: $text', ({ text, joined }) => {
+		const tokens = scan(text, new Diagnostics());
+		expect(tokens[1]?.value).toBe('B');
+		expect(tokens[1]?.joined === true).toBe(joined);
+		expect(tokens[0]?.joined).toBeUndefined();
+	});
+
 	it('checks nesting before scanning the rest of hostile input', () => {
 		const at = new Diagnostics();
 		scan('{'.repeat(LIMITS.braceDepth) + '}'.repeat(LIMITS.braceDepth), at);

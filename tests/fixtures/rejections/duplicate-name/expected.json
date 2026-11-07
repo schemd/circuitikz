@@ -1,0 +1,10 @@
+[
+  {
+    "code": "reference",
+    "message": "Coordinate A is already defined; give the second definition a different name.",
+    "line": 3,
+    "column": 14,
+    "endColumn": 15,
+    "severity": "error"
+  }
+]

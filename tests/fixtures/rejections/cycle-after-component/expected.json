@@ -1,0 +1,10 @@
+[
+  {
+    "code": "unsupported",
+    "message": "cycle after to[...] closes inside that component's drawing in CircuiTikZ; end the path at an explicit coordinate instead.",
+    "line": 2,
+    "column": 48,
+    "endColumn": 53,
+    "severity": "error"
+  }
+]

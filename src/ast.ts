@@ -1,4 +1,4 @@
-/** Internal syntax, independent of Schemd text. All offsets count UTF-16 units. */
+/** Internal syntax and resolved geometry, independent of Schemd text. All offsets count UTF-16 units. */
 export interface Span {
 	readonly start: number;
 	readonly end: number;
@@ -10,6 +10,9 @@ export interface Span {
 export interface Token extends Span {
 	readonly value: string;
 	readonly kind: 'command' | 'atom' | 'symbol' | 'eof';
+	/** Set when the gap before this token holds no TeX space: only comments, with the line ends
+	 * and leading blanks they swallow. */
+	readonly joined?: true;
 }
 
 export interface Key {
@@ -36,4 +39,17 @@ export interface SyntaxTree {
 	readonly span: Span;
 	readonly keys: readonly Key[];
 	readonly statements: readonly Statement[];
+}
+
+export interface Point {
+	readonly x: number;
+	readonly y: number;
+}
+
+export interface ResolvedSegment {
+	readonly from: Point;
+	readonly to: Point;
+	readonly operation: '--' | '|-' | '-|' | 'to';
+	readonly keys: readonly Key[];
+	readonly span: Span;
 }

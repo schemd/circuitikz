@@ -56,7 +56,9 @@ if (result.ok) {
 
 Available now: the parser and the topology oracle. `convertCircuitikz` reads the TeX and reports every
 problem it finds, but it does not convert yet. For input with no problem, it returns a single
-`unsupported` error saying so. Named coordinates are not resolved yet either.
+`unsupported` error saying so. Named coordinates, `+`/`++` and `cycle` are resolved as TikZ resolves
+them, so an undefined or duplicate name, `cycle` after a `to[...]`, and a relative point that
+overflows are reported too.
 
 | Export | What it does |
 | --- | --- |

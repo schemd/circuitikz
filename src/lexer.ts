@@ -13,12 +13,12 @@ export function through(first: Span, last: Span): Span {
 		endColumn: first.line === last.line ? last.endColumn : first.endColumn };
 }
 
-/** Literal token text, with source gaps retained as word boundaries. */
+/** Literal token text, with each TeX space in a source gap kept as one word boundary. */
 export function textOf(tokens: readonly Token[]): string {
 	const parts: string[] = [];
 	let end = -1;
 	for (const token of tokens) {
-		if (end >= 0 && token.start > end) parts.push(' ');
+		if (end >= 0 && token.start > end && token.joined !== true) parts.push(' ');
 		parts.push(token.value);
 		end = token.end;
 	}
@@ -32,17 +32,26 @@ export function scan(source: string, diagnostics: Diagnostics): Token[] {
 	let line = 1;
 	let column = 1;
 	let depth = 0;
+	// TeX reads a line end as a space unless a comment ended the line, and skips the next line's
+	// leading blanks; blanks elsewhere are a space (R-4.1.3).
+	let space = false;
+	let comment = false;
+	let lineStart = false;
 	while (cursor < source.length) {
 		const c = source[cursor]!;
 		if (c === '\r' || c === '\n') {
 			cursor += c === '\r' && source[cursor + 1] === '\n' ? 2 : 1;
 			line += 1;
 			column = 1;
+			if (!comment) space = true;
+			comment = false;
+			lineStart = true;
 			continue;
 		}
-		if (c === ' ' || c === '\t' || c === '\f') { cursor += 1; column += 1; continue; }
+		if (c === ' ' || c === '\t' || c === '\f') { cursor += 1; column += 1; if (!lineStart) space = true; continue; }
 		if (c === '%') {
 			while (cursor < source.length && source[cursor] !== '\r' && source[cursor] !== '\n') { cursor += 1; column += 1; }
+			comment = true;
 			continue;
 		}
 		const start = cursor;
@@ -63,7 +72,10 @@ export function scan(source: string, diagnostics: Diagnostics): Token[] {
 		}
 		column += cursor - start;
 		const token: Token = { kind, value: source.slice(start, cursor), start, end: cursor, line, column: startColumn, endColumn: column };
-		tokens.push(token);
+		tokens.push(!space && tokens.length > 0 && start > tokens.at(-1)!.end ? { ...token, joined: true } : token);
+		space = false;
+		comment = false;
+		lineStart = false;
 		if (c === '{') {
 			if (depth === LIMITS.braceDepth) { limit(diagnostics, 'brace nesting depth', LIMITS.braceDepth, 'use fewer nested braces', token); break; }
 			depth += 1;
