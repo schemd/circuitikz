@@ -82,7 +82,16 @@ jobs:
       - name: Kill every mutant
         run: bun run test:mutation
 
-      # M1 adds `bun run test:fuzz:contract` here (REQUIREMENTS.md R-8.3).
+      - name: Run 20000 reproducible fuzz cases
+        run: bun run test:fuzz:contract
+
+      - name: Preserve minimized fuzz failures
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-failures
+          path: fuzz-failure-*.json
+          if-no-files-found: ignore
 
       - name: Build package
         run: bun run build

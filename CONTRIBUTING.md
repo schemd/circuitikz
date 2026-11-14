@@ -36,7 +36,7 @@ bun run size             # after anything that could move bytes
 | `tests/packaging.test.ts` | Exports map and dependency contract | R-2.1, R-8.6 |
 | `tests/conformance.test.ts` | Every expected document compiles, routes first time, and wires as the TeX does | R-7.2 |
 | `bun run size` | gzip and brotli-11 budgets | R-8.5 |
-| `bun run test:fuzz:contract` *(from M1)* | Never throws, never hangs, spans in bounds, deterministic | R-8.3 |
+| `bun run test:fuzz:contract` | Never throws, never hangs, spans in bounds, deterministic | R-8.3 |
 
 ### Coverage is a floor
 
