@@ -360,7 +360,25 @@ describe('fuzz infrastructure', () => {
 		expect(temporary).toBe(false);
 	});
 
-	it.each(['--replay', '--seed', '42', '--cases', '--fuzz=1', '-s=1'])('rejects the unknown or space-separated argument %s before running', async (argument) => {
+	it('refuses an empty --replay= instead of reading no file', async () => {
+		const { status, output } = await fuzz('export function convertCircuitikz(){throw new Error("never called");}', ['--replay=']);
+		expect(status).toBe(1);
+		expect(output).toContain('--replay must name a saved fuzz-failure file');
+	});
+
+	it('mutates an empty fixture, and inserts tokens after the last character of a fixture', async () => {
+		// Every fixture is 'x' or empty, and no other mode starts an input with 'x': only an insertion past the end does.
+		const { status, failure } = await fuzz(`import {writeFileSync} from 'node:fs';export function convertCircuitikz(t){globalThis.seen??=[];globalThis.seen.push(t);writeFileSync('seen.json',JSON.stringify(globalThis.seen));return ${rejected(`[${error('')}]`)};}`, ['--cases=400', '--seed=1'], 'seen.json', {
+			prepare: async (directory) => {
+				await writeFile(join(directory, 'tests/fixtures/conformance/one/input.tex'), 'x');
+				await writeFile(join(directory, 'tests/fixtures/rejections/two/input.tex'), '');
+			}
+		});
+		expect(status).toBe(0);
+		expect(failure.some((text) => text.length > 1 && text.startsWith('x'))).toBe(true);
+	});
+
+	it.each(['--replay', '--seed', '42', '--cases', '--fuzz=1', '--seeds=2', '--case=100', '-s=1'])('rejects the unknown or space-separated argument %s before running', async (argument) => {
 		const { status, output, failure } = await fuzz('export function convertCircuitikz(){throw new Error("never called");}', [argument]);
 		expect(status).toBe(1);
 		expect(output).toContain(`Unknown argument ${argument}`);

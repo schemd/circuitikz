@@ -117,7 +117,8 @@ async function* generated(seed, cases) {
 		else if (mode === 1) for (let size = next(100); size > 0; size -= 1) input += tokens[next(tokens.length)] + ' ';
 		else if (mode === 2) {
 			input = corpus[next(corpus.length)];
-			const start = next(input.length);
+			// One past the end too: an empty fixture gets a position, and a token can land after the last character.
+			const start = next(input.length + 1);
 			input = input.slice(0, start) + tokens[next(tokens.length)] + input.slice(start + next(12));
 		} else if (mode === 3) {
 			const n = next(1000) - 500;
@@ -157,6 +158,7 @@ if (!isMainThread) {
 		return value;
 	}
 	const replay = process.argv.find((v) => v.startsWith('--replay='))?.slice('--replay='.length);
+	if (replay === '') throw new TypeError('--replay must name a saved fuzz-failure file');
 	const seed = argument('seed', 0x5c4e4d, 0xffffffff);
 	const cases = argument('cases', 20_000, 1_000_000);
 	// Minimization is bounded so CI keeps time to upload the reproducer: candidates and wall time both.
@@ -172,25 +174,35 @@ if (!isMainThread) {
 			let started = false;
 			let done = false;
 			let timer;
+			// Resolves only once the worker is gone, so a long minimization never overlaps dying workers.
 			const finish = (result) => {
 				if (done) return;
 				done = true;
 				clearTimeout(timer);
-				void worker.terminate();
-				resolve(result);
+				worker.terminate().catch(() => {}).then(() => resolve(result));
 			};
-			const fail = (error, signature) => finish(started
-				? { failed: true, ...active, error, signature }
-				: { failed: true, infrastructure: true, index: undefined, error, signature: 'startup' });
+			const fail = (error, signature) => {
+				if (started) finish({ failed: true, ...active, error, signature });
+				else finish({ failed: true, infrastructure: true, index: undefined, error, signature: 'startup' });
+			};
 			const arm = (ms) => {
 				clearTimeout(timer);
-				timer = setTimeout(() => fail(started ? 'Worker exceeded the per-input 2000 ms deadline.' : `Worker did not start within ${ms} ms.`, 'deadline'), ms);
+				timer = setTimeout(() => {
+					if (started) fail('Worker exceeded the per-input 2000 ms deadline.', 'deadline');
+					else fail(`Worker did not start within ${ms} ms.`, 'deadline');
+				}, ms);
 			};
 			arm(STARTUP_MS);
 			worker.on('message', (message) => {
-				if (message.started) { started = true; arm(2000); }
-				else if (message.active !== undefined) { active = { input: message.input, options: message.options, index: message.active }; arm(2000); }
-				else finish(message);
+				if (message.started) {
+					started = true;
+					arm(2000);
+				} else if (message.active !== undefined) {
+					active = { input: message.input, options: message.options, index: message.active };
+					arm(2000);
+				} else {
+					finish(message);
+				}
 			});
 			worker.on('error', (error) => fail(String(error), `uncaught ${signature(error)}`));
 			worker.on('exit', (code) => fail(`Worker exited ${code} before reporting a result.`, `exit ${code}`));
@@ -240,9 +252,13 @@ if (!isMainThread) {
 		await save(false);
 		// Shrinking runs candidates alone, so it only starts once the original fails alone too, the same way.
 		const single = await alone(failure.input, failure.options);
-		reproduces = same(single, failure.signature) ? 'standalone'
-			: same(await prefix({ seed, index: failure.index }), failure.signature, { index: failure.index, original: failure.input }) ? 'with-prefix' : 'no';
-		if (reproduces === 'standalone') error = single.error;
+		if (same(single, failure.signature)) {
+			reproduces = 'standalone';
+			error = single.error;
+		} else {
+			const rerun = await prefix({ seed, index: failure.index });
+			reproduces = same(rerun, failure.signature, { index: failure.index, original: failure.input }) ? 'with-prefix' : 'no';
+		}
 		if (reproduces !== 'standalone') {
 			await save(false);
 			throw new Error(`Fuzz contract failed: ${failure.error}; ${reproduces === 'with-prefix' ? `the input fails only after the earlier inputs of its seed; replay with --seed=${seed} --cases=${failure.index + 1}` : 'the failure did not reproduce in a fresh worker or after its seeded prefix'}. Saved unminimized to ${path}`);
@@ -261,8 +277,14 @@ if (!isMainThread) {
 					const candidate = minimal.slice(0, start) + minimal.slice(start + chunk);
 					const outcome = await alone(candidate, failure.options);
 					// A candidate that fails another way (another clause, a deadline) is a different bug: not a reduction.
-					if (same(outcome, failure.signature)) { minimal = candidate; error = outcome.error; reduced = true; await save(false); }
-					else start += chunk;
+					if (same(outcome, failure.signature)) {
+						minimal = candidate;
+						error = outcome.error;
+						reduced = true;
+						await save(false);
+					} else {
+						start += chunk;
+					}
 				}
 			} while (chunk === 1 && reduced);
 		}

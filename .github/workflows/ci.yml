@@ -93,9 +93,7 @@ jobs:
           path: fuzz-failure-*.json
           if-no-files-found: ignore
 
-      - name: Build package
-        run: bun run build
-
+      # The fuzz step above already built dist (its script starts with `bun run build`).
       - name: Enforce size budget
         run: bun run size
 
