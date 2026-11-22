@@ -368,14 +368,15 @@ describe('fuzz infrastructure', () => {
 
 	it('mutates an empty fixture, and inserts tokens after the last character of a fixture', async () => {
 		// Every fixture is 'x' or empty, and no other mode starts an input with 'x': only an insertion past the end does.
-		const { status, failure } = await fuzz(`import {writeFileSync} from 'node:fs';export function convertCircuitikz(t){globalThis.seen??=[];globalThis.seen.push(t);writeFileSync('seen.json',JSON.stringify(globalThis.seen));return ${rejected(`[${error('')}]`)};}`, ['--cases=400', '--seed=1'], 'seen.json', {
+		// Records only the input it looks for, so the 800 calls stay cheap.
+		const { status, failure } = await fuzz(`import {writeFileSync} from 'node:fs';export function convertCircuitikz(t){if(t.length>1&&t.startsWith('x'))writeFileSync('seen.json',JSON.stringify(t));return ${rejected(`[${error('')}]`)};}`, ['--cases=400', '--seed=1'], 'seen.json', {
 			prepare: async (directory) => {
 				await writeFile(join(directory, 'tests/fixtures/conformance/one/input.tex'), 'x');
 				await writeFile(join(directory, 'tests/fixtures/rejections/two/input.tex'), '');
 			}
 		});
 		expect(status).toBe(0);
-		expect(failure.some((text) => text.length > 1 && text.startsWith('x'))).toBe(true);
+		expect(failure).toMatch(/^x./s);
 	});
 
 	it.each(['--replay', '--seed', '42', '--cases', '--fuzz=1', '--seeds=2', '--case=100', '-s=1'])('rejects the unknown or space-separated argument %s before running', async (argument) => {
