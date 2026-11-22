@@ -1,6 +1,8 @@
 /** Seeded, isolated fuzz contract (R-8.3). No dependency beyond the toolchain. */
 import assert from 'node:assert/strict';
-import { readFile, readdir, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads';
 import { buildNetlist, compileSchematic, diagnoseSchematic } from '@schemd/core';
 import { convertCircuitikz } from '../dist/index.js';
@@ -19,6 +21,7 @@ function check(input, options) {
 	   alike lets stable data with any prototype compare equal. */
 	const result = structuredClone(convertCircuitikz(input, options));
 	assert.deepEqual(structuredClone(convertCircuitikz(input, options)), result, 'conversion is not deterministic');
+	assert.deepEqual(Object.keys(result).sort(), ['diagnostics', 'fence', 'ok', 'source', 'sourceMap']);
 	assert.equal(typeof result.ok, 'boolean');
 	assert.ok(Array.isArray(result.diagnostics));
 	assert.ok(Array.isArray(result.sourceMap));
@@ -44,7 +47,9 @@ function check(input, options) {
 	} else {
 		assert.equal(typeof result.source, 'string');
 		assert.deepEqual(diagnoseSchematic(result.source, result.fence), []);
-		assert.ok(buildNetlist(compileSchematic(result.source, result.fence).document).nodes.length >= 0);
+		/* Only that core can build a netlist from it: whether that netlist wires what the TeX wires (R-3.3)
+		   is the converter's own oracle, which reports a mismatch as the internal diagnostic refused above. */
+		buildNetlist(compileSchematic(result.source, result.fence).document);
 		// One CircuitikzMapping per non-blank emitted line, in order, each pointing inside the input (R-3.5).
 		const emitted = result.source.split('\n').flatMap((line, index) => line.trim() === '' ? [] : [index + 1]);
 		assert.deepEqual(result.sourceMap.map((mapping) => mapping?.schemdLine), emitted);
@@ -63,14 +68,34 @@ function random(seed) {
 	};
 }
 
-async function* generated(seed, cases) {
-	const next = random(seed);
-	// Mutate every fixture input: valid circuits and the documented rejections alike.
+/** Every fixture input, valid circuits and the documented rejections alike: each folder that holds an
+ * input.tex, as the fixture suites glob them, so a stray file such as .DS_Store is not a fixture. */
+async function fixtures() {
 	const corpus = [];
 	for (const kind of ['conformance', 'rejections']) {
 		const root = new URL(`../tests/fixtures/${kind}/`, import.meta.url);
-		for (const name of (await readdir(root)).sort()) corpus.push(await readFile(new URL(`${name}/input.tex`, root), 'utf8'));
+		const names = (await readdir(root, { withFileTypes: true })).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
+		for (const name of names) if (existsSync(new URL(`${name}/input.tex`, root))) corpus.push(await readFile(new URL(`${name}/input.tex`, root), 'utf8'));
 	}
+	return corpus;
+}
+
+/** What a seed's inputs are built from: a seeded prefix only replays the same inputs while this holds. */
+const fingerprint = async () => createHash('sha256').update(JSON.stringify([await fixtures(), LIMITS])).digest('hex');
+
+/** How an input fails, stable across inputs: the error class and the frames from the throw up to check(). */
+function signature(error) {
+	const frames = [];
+	for (const line of String(error?.stack ?? '').split('\n').filter((text) => /^\s*at /.test(text))) {
+		frames.push(line.match(/([^/\\(\s]+:\d+:\d+)\)?\s*$/)?.[1] ?? line.trim());
+		if (/^\s*at check\b/.test(line)) break;
+	}
+	return [error?.name ?? typeof error, ...frames].join(' ');
+}
+
+async function* generated(seed, cases) {
+	const next = random(seed);
+	const corpus = await fixtures();
 	const chars = [...'\\{}[]()%,;=+-|$^0123456789abcXYZ \r\n\t', '😀', 'α', '\u0000'];
 	const tokens = ['\\begin{circuitikz}', '\\end{circuitikz}', '\\draw', '\\coordinate', '\\node', '(', ')', '[', ']', '{', '}', ';', ',', 'to', '++', '+', '--', '|-', '-|', 'cycle', 'R', '0', '1.00', '(A)', '%comment\r\n'];
 	const wrap = (text) => `\\begin{circuitikz}\n${text}\n\\end{circuitikz}`;
@@ -107,20 +132,24 @@ async function* generated(seed, cases) {
 }
 
 if (!isMainThread) {
+	// Imports are done: the per-input deadline starts now, not while the worker loads core and dist.
+	parentPort.postMessage({ started: true });
 	if (workerData.mode === 'single') {
 		try { check(workerData.input, workerData.options); parentPort.postMessage({ failed: false }); }
-		catch (error) { parentPort.postMessage({ failed: true, error: String(error) }); }
+		catch (error) { parentPort.postMessage({ failed: true, error: String(error), signature: signature(error) }); }
 	} else {
 		let completed = 0;
 		for await (const { input, index, options } of generated(workerData.seed, workerData.cases)) {
 			parentPort.postMessage({ active: index, input, options });
 			try { check(input, options); completed += 1; }
-			catch (error) { parentPort.postMessage({ failed: true, input, index, options, error: String(error) }); break; }
+			catch (error) { parentPort.postMessage({ failed: true, input, index, options, error: String(error), signature: signature(error) }); break; }
 		}
 		// Only this message ends a passing run: an exit, even with code 0, is never success.
 		if (completed === workerData.cases) parentPort.postMessage({ failed: false, completed });
 	}
 } else {
+	const unknown = process.argv.slice(2).find((v) => !/^--(seed|cases|minimize-attempts|replay)=/.test(v));
+	if (unknown !== undefined) throw new TypeError(`Unknown argument ${unknown}: use --seed=, --cases=, --minimize-attempts= or --replay=, each with its value after the =`);
 	function argument(name, fallback, maximum, minimum = 1) {
 		const raw = process.argv.find((v) => v.startsWith(`--${name}=`))?.slice(name.length + 3);
 		const value = raw === undefined ? fallback : Number(raw);
@@ -133,11 +162,14 @@ if (!isMainThread) {
 	// Minimization is bounded so CI keeps time to upload the reproducer: candidates and wall time both.
 	const attemptBudget = argument('minimize-attempts', 2000, 1_000_000, 0);
 	const MINIMIZE_MS = 120_000;
+	const STARTUP_MS = 30_000;
 
 	function isolated(data) {
 		return new Promise((resolve) => {
 			const worker = new Worker(new URL(import.meta.url), { workerData: data });
-			let active = { input: data.input, options: data.options, index: 0 };
+			// A run has no input until its worker names one; a failure before that is not the converter's.
+			let active = data.mode === 'single' ? { input: data.input, options: data.options, index: 0 } : { index: undefined };
+			let started = false;
 			let done = false;
 			let timer;
 			const finish = (result) => {
@@ -147,30 +179,43 @@ if (!isMainThread) {
 				void worker.terminate();
 				resolve(result);
 			};
-			const arm = () => {
+			const fail = (error, signature) => finish(started
+				? { failed: true, ...active, error, signature }
+				: { failed: true, infrastructure: true, index: undefined, error, signature: 'startup' });
+			const arm = (ms) => {
 				clearTimeout(timer);
-				timer = setTimeout(() => finish({ failed: true, ...active, error: 'Worker exceeded the per-input 2000 ms deadline.' }), 2000);
+				timer = setTimeout(() => fail(started ? 'Worker exceeded the per-input 2000 ms deadline.' : `Worker did not start within ${ms} ms.`, 'deadline'), ms);
 			};
-			arm();
+			arm(STARTUP_MS);
 			worker.on('message', (message) => {
-				if (message.active !== undefined) { active = { input: message.input, options: message.options, index: message.active }; arm(); }
+				if (message.started) { started = true; arm(2000); }
+				else if (message.active !== undefined) { active = { input: message.input, options: message.options, index: message.active }; arm(2000); }
 				else finish(message);
 			});
-			worker.on('error', (error) => finish({ failed: true, ...active, error: String(error) }));
-			worker.on('exit', (code) => finish({ failed: true, ...active, error: `Worker exited ${code} before reporting a result.` }));
+			worker.on('error', (error) => fail(String(error), `uncaught ${signature(error)}`));
+			worker.on('exit', (code) => fail(`Worker exited ${code} before reporting a result.`, `exit ${code}`));
 		});
 	}
 
 	// Each candidate runs alone in a fresh worker; a seeded prefix replays the run up to the failing index.
 	const alone = (input, options) => isolated({ mode: 'single', input, options });
 	const prefix = (record) => isolated({ mode: 'run', seed: record.seed, cases: record.index + 1 });
+	// The same failure: the same way of failing, and for a prefix, at the recorded input and no earlier one.
+	const same = (outcome, signature, record) => outcome.failed && !outcome.infrastructure && outcome.signature === signature
+		&& (record === undefined || outcome.index === record.index && outcome.input === record.original);
 
 	if (replay !== undefined) {
 		// Replays a saved artifact the way it was recorded to reproduce, and fails while it still does.
 		const record = JSON.parse(await readFile(replay, 'utf8'));
-		const outcome = record.reproduces === 'standalone' ? await alone(record.input, record.options)
-			: await alone(record.input, record.options).then((single) => single.failed ? single : prefix(record));
-		if (outcome.failed) throw new Error(`Replay reproduces the failure: ${outcome.error}`);
+		let outcome = await alone(record.input, record.options);
+		let reproduced = same(outcome, record.signature);
+		if (record.reproduces !== 'standalone' && !outcome.failed) {
+			// The seed rebuilds its inputs from today's fixtures and limits: only the recorded ones replay the failure.
+			if (record.fingerprint !== await fingerprint()) throw new Error(`Cannot replay ${replay}: the fixtures or limits changed since it was recorded, so seed ${record.seed} no longer builds the same inputs. Replay it on the commit that recorded it.`);
+			outcome = await prefix(record);
+			reproduced = same(outcome, record.signature, record);
+		}
+		if (outcome.failed) throw new Error(`Replay ${reproduced ? 'reproduces the failure' : `fails, but not as recorded (input ${outcome.index ?? 'none'})`}: ${outcome.error}`);
 		console.log(`Replay passes: ${replay} no longer fails.`);
 		process.exit(0);
 	}
@@ -178,16 +223,26 @@ if (!isMainThread) {
 	console.log(`Fuzz seed: ${seed}; cases: ${cases}`);
 	const failure = await isolated({ mode: 'run', seed, cases });
 	if (failure.failed || failure.completed !== cases) {
+		if (failure.index === undefined) throw new Error(`Fuzz run failed before its first input, so no converter input is to blame: ${failure.error}`);
 		const path = `fuzz-failure-${seed}.json`;
-		let minimal = failure.input ?? '';
+		let minimal = failure.input;
+		let error = failure.error;
 		let attempts = 0;
 		let reproduces = 'unchecked';
-		const save = (minimized) => writeFile(path, JSON.stringify({ seed, index: failure.index, error: failure.error, options: failure.options, reproduces, minimized, attempts, original: failure.input, input: minimal }, null, 2) + '\n');
+		const recorded = await fingerprint();
+		/* `error` is how `input` fails; `originalError` how `original` failed in the run. Written whole to a
+		   temporary file and renamed, so a kill mid-write never leaves a broken or truncated record. */
+		const save = async (minimized) => {
+			await writeFile(`${path}.tmp`, JSON.stringify({ seed, index: failure.index, error, originalError: failure.error, signature: failure.signature, options: failure.options, reproduces, minimized, attempts, fingerprint: recorded, original: failure.input, input: minimal }, null, 2) + '\n');
+			await rename(`${path}.tmp`, path);
+		};
 		// The original is on disk before the first candidate runs, and every reduction is saved as it lands.
 		await save(false);
-		// Shrinking runs candidates alone, so it only starts once the original fails alone too.
-		reproduces = (await alone(failure.input, failure.options)).failed ? 'standalone'
-			: (await prefix({ seed, index: failure.index })).failed ? 'with-prefix' : 'no';
+		// Shrinking runs candidates alone, so it only starts once the original fails alone too, the same way.
+		const single = await alone(failure.input, failure.options);
+		reproduces = same(single, failure.signature) ? 'standalone'
+			: same(await prefix({ seed, index: failure.index }), failure.signature, { index: failure.index, original: failure.input }) ? 'with-prefix' : 'no';
+		if (reproduces === 'standalone') error = single.error;
 		if (reproduces !== 'standalone') {
 			await save(false);
 			throw new Error(`Fuzz contract failed: ${failure.error}; ${reproduces === 'with-prefix' ? `the input fails only after the earlier inputs of its seed; replay with --seed=${seed} --cases=${failure.index + 1}` : 'the failure did not reproduce in a fresh worker or after its seeded prefix'}. Saved unminimized to ${path}`);
@@ -204,13 +259,15 @@ if (!isMainThread) {
 					if (attempts >= attemptBudget || Date.now() >= deadline) { minimized = false; break search; }
 					attempts += 1;
 					const candidate = minimal.slice(0, start) + minimal.slice(start + chunk);
-					if ((await isolated({ mode: 'single', input: candidate, options: failure.options })).failed) { minimal = candidate; reduced = true; await save(false); }
+					const outcome = await alone(candidate, failure.options);
+					// A candidate that fails another way (another clause, a deadline) is a different bug: not a reduction.
+					if (same(outcome, failure.signature)) { minimal = candidate; error = outcome.error; reduced = true; await save(false); }
 					else start += chunk;
 				}
 			} while (chunk === 1 && reduced);
 		}
 		await save(minimized);
-		throw new Error(`Fuzz contract failed: ${failure.error}; ${minimized ? 'minimized' : 'partly minimized (budget spent)'} input saved to ${path}`);
+		throw new Error(`Fuzz contract failed: ${error}; ${minimized ? 'minimized' : 'partly minimized (budget spent)'} input saved to ${path}`);
 	}
 	console.log(`PASS: ${cases} reproducible fuzz cases (${cases * 2} conversions).`);
 }

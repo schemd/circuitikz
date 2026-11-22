@@ -1,9 +1,12 @@
 import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 
+// Paths from this file, not the working directory, so the suite runs from anywhere.
+const repository = fileURLToPath(new URL('..', import.meta.url));
 const rejected = (diagnostics) => `{ok:false,source:undefined,fence:undefined,sourceMap:[],diagnostics:${diagnostics}}`;
 const error = (fields) => `{code:'syntax',message:'m',line:1,column:1,endColumn:1,severity:'error',${fields}}`;
 // A source core accepts, as M2 emits it: one component inside its fence.
@@ -15,24 +18,28 @@ const atEnd = (split) => `const lines=t.split(${split});const line=lines.length;
 
 /** Runs the real fuzz script against a stand-in converter in a scratch package, so a converter
  * that breaks the contract can be shown to fail the gate. Nothing in src or dist changes. */
-async function fuzz(converter, args = ['--cases=1', '--seed=1'], output = 'fuzz-failure-1.json', { kill, replay } = {}) {
+async function fuzz(converter, args = ['--cases=1', '--seed=1'], output = 'fuzz-failure-1.json', { kill, replay, prepare, beforeReplay } = {}) {
 	const directory = await mkdtemp(join(tmpdir(), 'circuitikz-fuzz-contract-'));
 	try {
 		for (const path of ['scripts', 'dist', 'tests/fixtures/conformance/one', 'tests/fixtures/rejections/two']) await mkdir(join(directory, path), { recursive: true });
-		await symlink(resolve('node_modules'), join(directory, 'node_modules'), 'dir');
-		await cp('scripts/fuzz.mjs', join(directory, 'scripts/fuzz.mjs'));
+		// A junction on Windows needs no symlink privilege; elsewhere the type is ignored.
+		await symlink(join(repository, 'node_modules'), join(directory, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
+		await cp(join(repository, 'scripts/fuzz.mjs'), join(directory, 'scripts/fuzz.mjs'));
 		await writeFile(join(directory, 'package.json'), '{"type":"module"}');
 		await writeFile(join(directory, 'dist/index.js'), converter);
 		await writeFile(join(directory, 'dist/limits.js'), 'export const LIMITS = {sourceLength:4,braceDepth:2,statements:2,pathElements:2,components:2};');
 		await writeFile(join(directory, 'tests/fixtures/conformance/one/input.tex'), '\\begin{circuitikz}\\end{circuitikz}');
 		await writeFile(join(directory, 'tests/fixtures/rejections/two/input.tex'), '\\begin{circuitikz}\\draw (0,0)\\end{circuitikz}');
+		await prepare?.(directory);
 		const result = spawnSync(process.execPath, ['scripts/fuzz.mjs', ...args], { cwd: directory, encoding: 'utf8', timeout: kill ?? 15_000 });
 		if (kill === undefined) expect(result.error).toBeUndefined();
 		else expect(result.error?.code).toBe('ETIMEDOUT');
 		const failure = await readFile(join(directory, output), 'utf8').then(JSON.parse, () => undefined);
-		if (replay === undefined) return { status: result.status, output: result.stdout + result.stderr, failure };
+		const temporary = await readFile(join(directory, `${output}.tmp`)).then(() => true, () => false);
+		if (replay === undefined) return { status: result.status, output: result.stdout + result.stderr, failure, temporary };
 		// Replays the written artifact in a fresh process, against the same converter or a replacement.
 		if (replay !== true) await writeFile(join(directory, 'dist/index.js'), replay);
+		await beforeReplay?.(directory);
 		const again = spawnSync(process.execPath, ['scripts/fuzz.mjs', `--replay=${output}`], { cwd: directory, encoding: 'utf8', timeout: 15_000 });
 		expect(again.error).toBeUndefined();
 		return { status: result.status, output: result.stdout + result.stderr, failure, replayed: { status: again.status, output: again.stdout + again.stderr } };
@@ -68,7 +75,8 @@ describe('fuzz infrastructure', () => {
 		{ name: 'a diagnostic on a line the input lacks', converter: `return ${rejected(`[${error('line:2')}]`)};`, error: 'AssertionError' },
 		{ name: 'a span past the end of its line', converter: `return ${rejected(`[${error('column:9,endColumn:9')}]`)};`, error: 'AssertionError' },
 		{ name: 'an end column before its start', converter: `return ${rejected(`[${error('column:2,endColumn:1')}]`)};`, error: 'AssertionError' },
-		{ name: 'diagnostics out of order', converter: `return ${rejected(`[${error('column:3,endColumn:3')},${error('')}]`)};`, error: 'AssertionError' },
+		// Shorter than two characters, column 3 is off the line: a span failure, not this one, so it stops at '%%'.
+		{ name: 'diagnostics out of order', converter: `return ${rejected(`[${error('column:3,endColumn:3')},${error('')}]`)};`, error: 'AssertionError', input: '%%' },
 		{ name: 'an internal diagnostic', converter: `return ${rejected(`[${error("code:'internal'")}]`)};`, error: 'An internal diagnostic is always a converter bug.' },
 		{ name: 'an unknown diagnostic field', converter: `return ${rejected(`[${error('extra:1')}]`)};`, error: 'AssertionError' },
 		{ name: 'a rejection with a source', converter: `return {ok:false,source:'x',fence:undefined,sourceMap:[],diagnostics:[${error('')}]};`, error: 'AssertionError' },
@@ -88,7 +96,12 @@ describe('fuzz infrastructure', () => {
 		{ name: 'a missing diagnostic field', converter: `return ${rejected("[{code:'syntax',message:'m',line:1,column:1,severity:'error'}]")};`, error: 'AssertionError' },
 		{ name: 'a later line before an earlier one', converter: `return ${rejected(`[${error('')},${error('')}].map((d,i)=>({...d,line:i?1:2}))`)};`, error: 'AssertionError' },
 		{ name: 'a success that core rejects', converter: `return {...${accepted('')},source:'capacitor:C1 at (900, 80) #cyan\\n'};`, error: 'AssertionError' },
-		{ name: 'a success with no fence', converter: `return {...${accepted('')},fence:undefined};`, error: 'SchematicSyntaxError: Parser options must be an object.' },
+		// Core's error class, not its wording, which a core release in range may change.
+		{ name: 'a success with no fence', converter: `return {...${accepted('')},fence:undefined};`, error: 'SchematicSyntaxError' },
+		// The result object has exactly its five fields: none extra, none left out even when undefined.
+		{ name: 'a result with an extra field', converter: `return {...${rejected(`[${error('')}]`)},debug:1};`, error: 'AssertionError' },
+		{ name: 'a rejection without its source and fence keys', converter: `return {ok:false,sourceMap:[],diagnostics:[${error('')}]};`, error: 'AssertionError' },
+		{ name: 'a success without its fence key', converter: `const {fence,...rest}=${accepted('')};return rest;`, error: 'AssertionError' },
 		{ name: 'a success whose source map misses a line', converter: `return {...${accepted('')},sourceMap:[]};`, error: 'AssertionError' },
 		{ name: 'a success with no source', converter: `return {...${accepted('')},source:undefined};`, error: 'AssertionError' },
 		// Each source-map entry is a CircuitikzMapping: four integer fields, the emitted line it maps, and a span inside the input (R-3.5).
@@ -110,11 +123,11 @@ describe('fuzz infrastructure', () => {
 		// The second call mutates and returns the object the first call returned, so comparing the two references proves nothing.
 		{ name: 'a reused result whose message changes on every call', converter: `globalThis.r??=${rejected(`[${error('')}]`)};globalThis.n=(globalThis.n??0)+1;globalThis.r.diagnostics[0].message='call '+globalThis.n;return globalThis.r;`, error: 'conversion is not deterministic' },
 		{ name: 'a reused diagnostics array that grows on every call', converter: `globalThis.d??=[];globalThis.d.push(${error('')});return {...${rejected('globalThis.d')}};`, error: 'conversion is not deterministic' }
-	])('fails the gate for $name', async ({ converter, error: expected }) => {
+	])('fails the gate for $name', async ({ converter, error: expected, input = '' }) => {
 		const { status, failure } = await fuzz(`export function convertCircuitikz(){${converter}}`);
 		expect(status).toBe(1);
 		expect(failure?.index).toBe(0);
-		expect(failure?.input).toBe('');
+		expect(failure?.input).toBe(input);
 		expect(failure?.error).toContain(expected);
 	});
 
@@ -274,6 +287,85 @@ describe('fuzz infrastructure', () => {
 		const result = await fuzz(`export function convertCircuitikz(){return ${rejected(`[${error('')}]`)};}`, ['--cases=1', '--seed=4294967295']);
 		expect(result.output).toContain('Fuzz seed: 4294967295; cases: 1');
 		expect(result.status).toBe(0);
+	});
+
+	it('minimizes only to inputs that fail the same way, and records how the minimized input fails', async () => {
+		// Any one character but '%' breaks the span rule; 'α' throws first. Shrinking must not trade 'alpha' for the span bug.
+		const converter = `export function convertCircuitikz(t){if(t.includes("α"))throw new Error("alpha");return t.length===1&&t!=='%'?${rejected(`[${error('column:9,endColumn:9')}]`)}:${rejected(`[${error('')}]`)};}`;
+		const { status, failure, replayed } = await fuzz(converter, ['--cases=200', '--seed=1'], undefined, { replay: true });
+		expect(status).toBe(1);
+		expect(failure).toMatchObject({ input: 'α', error: 'Error: alpha', originalError: 'Error: alpha', minimized: true, reproduces: 'standalone' });
+		expect(replayed.output).toContain('Replay reproduces the failure: Error: alpha');
+	});
+
+	it('says a replay fails differently when the saved input now breaks another rule', async () => {
+		const broken = 'export function convertCircuitikz(){throw new Error("controlled failure");}';
+		const other = `export function convertCircuitikz(){return ${rejected(`[${error('line:2')}]`)};}`;
+		const { replayed } = await fuzz(broken, undefined, undefined, { replay: other });
+		expect(replayed.status).toBe(1);
+		expect(replayed.output).toContain('fails, but not as recorded');
+	});
+
+	it('ignores stray files and folders without an input in the fixture folders', async () => {
+		const { status, output } = await fuzz(`export function convertCircuitikz(){return ${rejected(`[${error('')}]`)};}`, ['--cases=40', '--seed=1'], undefined, {
+			prepare: async (directory) => {
+				await writeFile(join(directory, 'tests/fixtures/rejections/.DS_Store'), '');
+				await mkdir(join(directory, 'tests/fixtures/conformance/empty'));
+			}
+		});
+		expect(output).toContain('PASS: 40 reproducible fuzz cases (80 conversions).');
+		expect(status).toBe(0);
+	});
+
+	// While the worker loads its imports, and after it starts but before the corpus yields an input.
+	it.each([
+		{ name: 'an import that throws in the worker', clue: 'broken build', prepare: (directory) => writeFile(join(directory, 'dist/limits.js'), 'import {isMainThread} from "node:worker_threads";if(!isMainThread)throw new Error("broken build");export const LIMITS = {sourceLength:4,braceDepth:2,statements:2,pathElements:2,components:2};') },
+		{ name: 'a fixture whose input.tex is a folder', clue: 'EISDIR', prepare: (directory) => mkdir(join(directory, 'tests/fixtures/rejections/three/input.tex'), { recursive: true }) }
+	])('reports a failure before the first input as the run\'s, writing no reproducer, for $name', async ({ clue, prepare }) => {
+		const { status, output, failure } = await fuzz(`export function convertCircuitikz(){return ${rejected(`[${error('')}]`)};}`, undefined, undefined, { prepare });
+		expect(status).toBe(1);
+		expect(output).toContain('failed before its first input');
+		expect(output).toContain(clue);
+		expect(failure).toBeUndefined();
+	});
+
+	// '%%%%' right after '%%%' answers differently from its second call; alone, or after itself, it never does.
+	const afterPrevious = `export function convertCircuitikz(t){const message=t==='%%%%'&&globalThis.last==='%%%'?'changed':'stable';globalThis.last=t;return ${rejected(`[${error('message')}]`)};}`;
+
+	it('refuses to replay a seeded-prefix failure once the fixtures change, instead of passing it', async () => {
+		const { failure, replayed } = await fuzz(afterPrevious, ['--cases=40', '--seed=1'], undefined, {
+			replay: true,
+			beforeReplay: async (directory) => {
+				await mkdir(join(directory, 'tests/fixtures/rejections/three'));
+				await writeFile(join(directory, 'tests/fixtures/rejections/three/input.tex'), '\\draw');
+			}
+		});
+		expect(failure).toMatchObject({ reproduces: 'with-prefix', fingerprint: expect.stringMatching(/^[0-9a-f]{64}$/) });
+		expect(replayed.status).toBe(1);
+		expect(replayed.output).toContain('the fixtures or limits changed since it was recorded');
+		expect(replayed.output).not.toContain('Replay passes');
+	});
+
+	it('does not count a prefix that fails at another input as reproducing the failure', async () => {
+		// Recorded as needing its prefix; the replacement fails on the first boundary input instead.
+		const other = `export function convertCircuitikz(t){if(t==='%%%')throw new Error("earlier");return ${rejected(`[${error('')}]`)};}`;
+		const { replayed } = await fuzz(afterPrevious, ['--cases=40', '--seed=1'], undefined, { replay: other });
+		expect(replayed.status).toBe(1);
+		expect(replayed.output).toContain('fails, but not as recorded (input 0)');
+	});
+
+	it('writes the record through a temporary file it renames, leaving none behind', async () => {
+		const { failure, temporary } = await fuzz('export function convertCircuitikz(){throw new Error("controlled failure");}');
+		expect(failure).toMatchObject({ minimized: true, input: '' });
+		expect(temporary).toBe(false);
+	});
+
+	it.each(['--replay', '--seed', '42', '--cases', '--fuzz=1', '-s=1'])('rejects the unknown or space-separated argument %s before running', async (argument) => {
+		const { status, output, failure } = await fuzz('export function convertCircuitikz(){throw new Error("never called");}', [argument]);
+		expect(status).toBe(1);
+		expect(output).toContain(`Unknown argument ${argument}`);
+		expect(output).not.toContain('Fuzz seed');
+		expect(failure).toBeUndefined();
 	});
 
 	it.each(['--cases=0', '--cases=1000001', '--cases=1.5', '--cases=', '--cases=-1', '--seed=0', '--seed=x', '--seed=4294967296', '--seed=-1', '--seed=NaN', '--minimize-attempts=-1', '--minimize-attempts=1000001', '--minimize-attempts=x'])('rejects the out-of-range argument %s before running', async (argument) => {

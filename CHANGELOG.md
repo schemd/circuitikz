@@ -29,11 +29,15 @@ Written for someone deciding whether to upgrade. Sections: `Fixed`, `Added`, `Re
   45 rejection fixtures that pin each diagnostic's full message and position, and the 5 KiB M1 size
   budget.
 - A fuzz contract (`bun run test:fuzz:contract`, run in CI and by `release:check`): 20,000 seeded
-  inputs per run, each converted twice in an isolated worker with a 2-second deadline. Every result
-  must have the declared shape, keep its diagnostics and source-map spans in order and inside the
-  input, repeat exactly, and contain no `internal` diagnostic. A run passes only when its worker
-  reports every case done. A failure is saved as `fuzz-failure-<seed>.json` at once. It is minimized
-  within a budget (`--minimize-attempts`, 2,000 by default, and two minutes) only when it fails alone
-  in a fresh worker. One that needs the earlier inputs of its seed is kept whole and marked
-  `with-prefix`. `--replay=<file>` reruns a saved failure the way it reproduces, and CI keeps the file
-  as an artifact.
+  inputs per run, each converted twice in an isolated worker with a 2-second deadline that starts once
+  the worker has loaded. Every result must have exactly its five fields, keep its diagnostics and
+  source-map spans in order and inside the input, repeat exactly, and contain no `internal`
+  diagnostic. A run passes only when its worker reports every case done; a failure before the first
+  input is reported as the run's, with no reproducer. A failure is saved as `fuzz-failure-<seed>.json`
+  at once, through a temporary file it renames. It is minimized within a budget
+  (`--minimize-attempts`, 2,000 by default, and two minutes) only when it fails alone in a fresh worker
+  the same way, and only to inputs that fail that way. One that needs the earlier inputs of its seed is
+  kept whole and marked `with-prefix`, with a fingerprint of the fixtures and limits that built them.
+  `--replay=<file>` reruns a saved failure the way it reproduces, says when it fails differently, and
+  refuses a `with-prefix` replay once the fixtures or limits change. Unknown arguments are rejected,
+  and CI keeps the file as an artifact.
