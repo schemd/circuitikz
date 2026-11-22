@@ -41,3 +41,16 @@ Written for someone deciding whether to upgrade. Sections: `Fixed`, `Added`, `Re
   `--replay=<file>` reruns a saved failure the way it reproduces, says when it fails differently, and
   refuses a `with-prefix` replay once the fixtures or limits change. Unknown arguments are rejected,
   and CI keeps the file as an artifact.
+- A smoke test of the built package (`bun run test:smoke`, which builds first; run in CI and by
+  `release:check`, R-8.6.2). It runs under Node.js 24+ only, not Bun. Every `src` module, nested ones
+  included, must have non-empty built code and declarations, and every built module must load. The
+  entry must export exactly the public API, and its declarations must name every export and public
+  type. In Node.js the built converter answers a supported circuit with the pending diagnostic, and
+  the topology helpers are checked against connectivity worked out by the script itself, never by
+  another helper. The entry is then bundled as one script and run in fresh V8 contexts with the Web
+  globals every host shares and none of Node.js's own (`process`, `Buffer`, `require`, `global`,
+  `setImmediate`): bare, as a worker (`self`) and as a page (`window`). In each, every fixture input
+  and every export must answer as in Node.js (the browser half of R-2.2.2). The bundle may import
+  only `@schemd/core` and its own files: Vite would otherwise swap a Node.js module for an empty one,
+  or inline a package that is only installed for the repository's tools. It replaces the one-line CI
+  import of `dist/index.js`.
