@@ -37,6 +37,7 @@ bun run size             # after anything that could move bytes
 | `tests/conformance.test.ts` | Every expected document compiles, routes first time, and wires as the TeX does | R-7.2 |
 | `bun run size` | gzip and brotli-11 budgets | R-8.5 |
 | `bun run test:fuzz:contract` | Never throws, never hangs, spans in bounds, deterministic | R-8.3 |
+| `bun run test:smoke` | The built `dist` loads in Node.js, exports the public API, and bundles for a browser or worker with no host globals | R-8.6.2, R-2.2.2 |
 
 ### Coverage is a floor
 

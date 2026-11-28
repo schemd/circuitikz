@@ -1,0 +1,10 @@
+[
+  {
+    "code": "geometry",
+    "message": "Endpoint (300,0) lies inside another segment (hundredths of a TikZ unit), which makes no connection; split that segment at the point or move the endpoint.",
+    "line": 3,
+    "column": 7,
+    "endColumn": 12,
+    "severity": "error"
+  }
+]

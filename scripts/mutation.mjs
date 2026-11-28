@@ -29,7 +29,7 @@ import { runSuites } from './mutation-run.mjs';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 /* Type declarations and re-exports: nothing a mutant could change. */
-const EXEMPT = new Set(['src/ast.ts', 'src/index.ts', 'src/types.ts']);
+const EXEMPT = new Set(['src/ast.ts', 'src/circuit.ts', 'src/index.ts', 'src/types.ts']);
 
 const mutants = [
 	{
@@ -500,6 +500,482 @@ const mutants = [
 		from: 'if (!wanted.has(terminal)) return',
 		to: 'if (false) return',
 		tests: ['tests/topology.test.ts']
+	},
+	{
+		name: `a second component kind is refused`,
+		file: 'src/components.ts',
+		from: `if (definition !== undefined) syntax(`,
+		to: `if (false) syntax(`,
+		tests: ['tests/components.test.ts']
+	},
+	{
+		name: `NAME=text carries a label`,
+		file: 'src/components.ts',
+		from: `labelKey = key.value !== undefined;`,
+		to: `labelKey = false;`,
+		tests: ['tests/components.test.ts']
+	},
+	{
+		name: `only l takes a label without a warning`,
+		file: 'src/components.ts',
+		from: `if (key.name !== 'l') presentation(`,
+		to: `if (false) presentation(`,
+		tests: ['tests/components.test.ts']
+	},
+	{
+		name: `invert must be bare`,
+		file: 'src/components.ts',
+		from: `key.name === 'invert' && key.value === undefined`,
+		to: `key.name === 'invert'`,
+		tests: ['tests/components.test.ts']
+	},
+	{
+		name: `repeated invert never toggles back`,
+		file: 'src/components.ts',
+		from: `key.value === undefined) invert = true;`,
+		to: `key.value === undefined) invert = !invert;`,
+		tests: ['tests/components.test.ts']
+	},
+	{
+		name: `a second label key is refused`,
+		file: 'src/components.ts',
+		from: `if (labelled) syntax(`,
+		to: `if (false) syntax(`,
+		tests: ['tests/components.test.ts']
+	},
+	{
+		name: `a part needs a kind`,
+		file: 'src/components.ts',
+		from: `if (definition === undefined) { syntax(diagnostics, 'one supported component kind in to[...]', span); return undefined; }`,
+		to: `if (definition === undefined) return undefined;`,
+		tests: ['tests/components.test.ts']
+	},
+	{
+		name: `short takes no label or invert`,
+		file: 'src/components.ts',
+		from: `if (definition.kind === 'wire' && (labelled || invert))`,
+		to: `if (false)`,
+		tests: ['tests/components.test.ts']
+	},
+	{
+		name: `fixbatteries turns only batteries`,
+		file: 'src/components.ts',
+		from: `invert !== (definition.kind === 'source' && fixBatteries)`,
+		to: `invert !== fixBatteries`,
+		tests: ['tests/components.test.ts']
+	},
+	{
+		name: `fixbatteries turns batteries`,
+		file: 'src/components.ts',
+		from: `invert !== (definition.kind === 'source' && fixBatteries)`,
+		to: `invert`,
+		tests: ['tests/components.test.ts']
+	},
+	{
+		name: `a presentation flag with a value is not presentation`,
+		file: 'src/components.ts',
+		from: `'o-o'].includes(key.name) && key.value === undefined`,
+		to: `'o-o'].includes(key.name)`,
+		tests: ['tests/components.test.ts']
+	},
+	{
+		name: `color and line width need a value`,
+		file: 'src/components.ts',
+		from: `['color', 'line width'].includes(key.name) && key.value !== undefined`,
+		to: `['color', 'line width'].includes(key.name)`,
+		tests: ['tests/components.test.ts']
+	},
+	{
+		name: `every documented alias is a kind`,
+		file: 'src/components.ts',
+		from: `'american resistor', 'european resistor'`,
+		to: `'american resistor'`,
+		tests: ['tests/components.test.ts']
+	},
+	{
+		name: `battery1 starts at its positive plate`,
+		file: 'src/components.ts',
+		from: `first: 'positive', last: 'negative'`,
+		to: `first: 'negative', last: 'positive'`,
+		tests: ['tests/components.test.ts', 'tests/graph.test.ts']
+	},
+	{
+		name: `each kind keeps its colour`,
+		file: 'src/components.ts',
+		from: `color: 'purple'`,
+		to: `color: 'amber'`,
+		tests: ['tests/components.test.ts']
+	},
+	{
+		name: `{$...$} is math too`,
+		file: 'src/labels.ts',
+		from: `if (parts[0]?.value === '{'`,
+		to: `if (false`,
+		tests: ['tests/components.test.ts']
+	},
+	{
+		name: `a lone $ is not math`,
+		file: 'src/labels.ts',
+		from: `&& parts.length > 1;`,
+		to: `;`,
+		tests: ['tests/components.test.ts']
+	},
+	{
+		name: `label commands are math only`,
+		file: 'src/labels.ts',
+		from: `else if (math && COMMANDS.has(`,
+		to: `else if (COMMANDS.has(`,
+		tests: ['tests/components.test.ts']
+	},
+	{
+		name: `braces, _ and ^ are math only`,
+		file: 'src/labels.ts',
+		from: `|| math && '{}_^'.includes(c)`,
+		to: `|| '{}_^'.includes(c)`,
+		tests: ['tests/components.test.ts']
+	},
+	{
+		name: `a double quote is never a label character`,
+		file: 'src/labels.ts',
+		from: `" .,-+/():'".includes(c)`,
+		to: `" .,-+/():'\\"".includes(c)`,
+		tests: ['tests/components.test.ts']
+	},
+	{
+		name: `a comment takes its line end with it`,
+		file: 'src/labels.ts',
+		from: `if (!comment) space = true; comment = false; lineStart = true;`,
+		to: `space = true; comment = false; lineStart = true;`,
+		tests: ['tests/components.test.ts']
+	},
+	{
+		name: `a line's leading blanks are skipped`,
+		file: 'src/labels.ts',
+		from: `else if (!comment && !lineStart) space = true;`,
+		to: `else if (!comment) space = true;`,
+		tests: ['tests/components.test.ts']
+	},
+	{
+		name: `CRLF is one line end in a label`,
+		file: 'src/labels.ts',
+		from: `if (c === '\\r' && source[i + 1] === '\\n') i += 1;`,
+		to: ``,
+		tests: ['tests/components.test.ts']
+	},
+	{
+		name: `a refused label is not also empty`,
+		file: 'src/labels.ts',
+		from: `if (!refused) syntax(`,
+		to: `syntax(`,
+		tests: ['tests/components.test.ts']
+	},
+	{
+		name: `a wire that closes a cycle adds no link`,
+		file: 'src/graph.ts',
+		from: `if (nets.join(from, to)) links.push(`,
+		to: `nets.join(from, to); links.push(`,
+		tests: ['tests/graph.test.ts']
+	},
+	{
+		name: `a diagonal part is refused`,
+		file: 'src/graph.ts',
+		from: `dx !== 0 && dy !== 0 || Math.abs(dx)`,
+		to: `Math.abs(dx)`,
+		tests: ['tests/graph.test.ts']
+	},
+	{
+		name: `a part is at least 0.84 units long`,
+		file: 'src/graph.ts',
+		from: `Math.abs(dy) < 84)`,
+		to: `Math.abs(dy) < 83)`,
+		tests: ['tests/graph.test.ts']
+	},
+	{
+		name: `IDs count per prefix`,
+		file: 'src/graph.ts',
+		from: `const count = (counts.get(spec.prefix) ?? 0) + 1;`,
+		to: `const count = parts.length + 1;`,
+		tests: ['tests/graph.test.ts']
+	},
+	{
+		name: `invert swaps the start terminal`,
+		file: 'src/graph.ts',
+		from: `first: spec.inverted ? spec.last : spec.first`,
+		to: `first: spec.first`,
+		tests: ['tests/graph.test.ts']
+	},
+	{
+		name: `the canvas limit is inclusive`,
+		file: 'src/graph.ts',
+		from: `if (width > SCHEMATIC_LIMITS.maximumBound`,
+		to: `if (width >= SCHEMATIC_LIMITS.maximumBound`,
+		tests: ['tests/graph.test.ts']
+	},
+	{
+		name: `the canvas has a height limit`,
+		file: 'src/graph.ts',
+		from: `|| height > SCHEMATIC_LIMITS.maximumBound)`,
+		to: `)`,
+		tests: ['tests/graph.test.ts']
+	},
+	{
+		name: `the margin is part of the canvas`,
+		file: 'src/graph.ts',
+		from: `const width = maxX - minX + 2 * MARGIN`,
+		to: `const width = maxX - minX`,
+		tests: ['tests/graph.test.ts']
+	},
+	{
+		name: `touching segments do not overlap`,
+		file: 'src/graph.ts',
+		from: `if (item.low < high)`,
+		to: `if (item.low <= high)`,
+		tests: ['tests/graph.test.ts']
+	},
+	{
+		name: `an overlap is found past a contained segment`,
+		file: 'src/graph.ts',
+		from: `high = Math.max(high, item.high);`,
+		to: `high = item.high;`,
+		tests: ['tests/graph.test.ts']
+	},
+	{
+		name: `a reversed segment lies on the same line`,
+		file: 'src/graph.ts',
+		from: `if (dx < 0 || dx === 0 && dy < 0) { dx = -dx; dy = -dy; }`,
+		to: ``,
+		tests: ['tests/graph.test.ts']
+	},
+	{
+		name: `segments of different lengths share a direction`,
+		file: 'src/graph.ts',
+		from: `dx /= a; dy /= a;`,
+		to: ``,
+		tests: ['tests/graph.test.ts']
+	},
+	{
+		name: `three edge ends make a junction`,
+		file: 'src/graph.ts',
+		from: `if (v.degree < 3) continue;`,
+		to: `if (v.degree < 4) continue;`,
+		tests: ['tests/graph.test.ts']
+	},
+	{
+		name: `the junction budget is inclusive`,
+		file: 'src/graph.ts',
+		from: `if (junctions.length === LIMITS.junctions)`,
+		to: `if (junctions.length === LIMITS.junctions - 1)`,
+		tests: ['tests/graph.test.ts']
+	},
+	{
+		name: `a circuit of junctions alone is not empty`,
+		file: 'src/graph.ts',
+		from: `if (parts.length + junctions.length === 0)`,
+		to: `if (parts.length === 0)`,
+		tests: ['tests/graph.test.ts']
+	},
+	{
+		name: `a wire on no anchor is refused`,
+		file: 'src/graph.ts',
+		from: `if (edge.wire && !hasAnchor.has(`,
+		to: `if (false && !hasAnchor.has(`,
+		tests: ['tests/graph.test.ts']
+	},
+	{
+		name: `a dropped cycle edge leaves no dead end`,
+		file: 'src/graph.ts',
+		from: `wire !== undefined && vertices[at]!.degree === 1 && !ambiguous)`,
+		to: `wire !== undefined && !ambiguous)`,
+		tests: ['tests/graph.test.ts']
+	},
+	{
+		name: `ambiguous geometry hides the stubs it leaves`,
+		file: 'src/graph.ts',
+		from: `vertices[at]!.degree === 1 && !ambiguous)`,
+		to: `vertices[at]!.degree === 1)`,
+		tests: ['tests/graph.test.ts']
+	},
+	{
+		name: `ambiguous geometry hides the orphans it leaves`,
+		file: 'src/graph.ts',
+		from: `if (!ambiguous) for (const edge of links)`,
+		to: `for (const edge of links)`,
+		tests: ['tests/graph.test.ts']
+	},
+	{
+		name: `a chain runs the way its earliest wire was drawn`,
+		file: 'src/graph.ts',
+		from: `const earliest = wires.reduce((a, b) => a.edge.order < b.edge.order ? a : b);`,
+		to: `const earliest = wires[0]!;`,
+		tests: ['tests/graph.test.ts']
+	},
+	{
+		name: `a direct junction contact follows the part's direction`,
+		file: 'src/graph.ts',
+		from: `forward = anchor.order < 0 ? other.start : true;`,
+		to: `forward = true;`,
+		tests: ['tests/graph.test.ts']
+	},
+	{
+		name: `connections are in source order`,
+		file: 'src/graph.ts',
+		from: `connections.sort((a, b) => a.order - b.order);`,
+		to: ``,
+		tests: ['tests/graph.test.ts']
+	},
+	{
+		name: `a connection takes the colour of its start`,
+		file: 'src/graph.ts',
+		from: `color: forward ? anchor.color : other.color`,
+		to: `color: anchor.color`,
+		tests: ['tests/graph.test.ts']
+	},
+	{
+		name: `|- turns at the vertical first`,
+		file: 'src/convert.ts',
+		from: `segment.operation === '|-' ? { x: segment.from.x, y: segment.to.y }`,
+		to: `segment.operation === '-|' ? { x: segment.from.x, y: segment.to.y }`,
+		tests: ['tests/graph.test.ts']
+	},
+	{
+		name: `no graph after an earlier error`,
+		file: 'src/convert.ts',
+		from: `if (!diagnostics.items.some((item) => item.severity === 'error')) buildCircuit(`,
+		to: `buildCircuit(`,
+		tests: ['tests/graph.test.ts']
+	},
+	{
+		name: `a vertex keeps the span of the point that made it`,
+		file: 'src/coordinates.ts',
+		from: `currentSpan = element.at.span;`,
+		to: ``,
+		tests: ['tests/graph.test.ts']
+	},
+	{
+		name: `the junction ceiling is stable`,
+		file: 'src/limits.ts',
+		from: `junctions: 512,`,
+		to: `junctions: 511,`,
+		tests: ['tests/graph.test.ts']
+	},
+	{
+		name: `math spacing commands are spaces`,
+		file: 'src/labels.ts',
+		from: `if (math && ['\\\\,', '\\\\;', '\\\\ '].includes(token.value)) { output.push(' '); word = false; }`,
+		to: `if (false) { output.push(' '); word = false; }`,
+		tests: ['tests/components.test.ts']
+	},
+	{
+		name: `a math space ends a control word`,
+		file: 'src/labels.ts',
+		from: `{ output.push(' '); word = false; }`,
+		to: `output.push(' ');`,
+		tests: ['tests/components.test.ts']
+	},
+	{
+		name: `TeX ignores blanks in math`,
+		file: 'src/labels.ts',
+		from: `if (space && !math) output.push(' ');`,
+		to: `if (space) output.push(' ');`,
+		tests: ['tests/components.test.ts']
+	},
+	{
+		name: `a control word is kept apart from the next letter`,
+		file: 'src/labels.ts',
+		from: `if (word && /[A-Za-z]/.test(c)) output.push('{}');`,
+		to: ``,
+		tests: ['tests/components.test.ts']
+	},
+	{
+		name: `only an ASCII letter continues a control word`,
+		file: 'src/labels.ts',
+		from: `if (word && /[A-Za-z]/.test(c))`,
+		to: `if (word)`,
+		tests: ['tests/components.test.ts']
+	},
+	{
+		name: `a refused second kind is not also a second label`,
+		file: 'src/components.ts',
+		from: `else { definition = found; labelKey = key.value !== undefined; }`,
+		to: `else definition = found; labelKey = key.value !== undefined;`,
+		tests: ['tests/components.test.ts']
+	},
+	{
+		name: `a zero-length wire is no branch and no vertex`,
+		file: 'src/graph.ts',
+		from: `if ((segment.spec === undefined || segment.spec.kind === 'wire') && segment.from.x === segment.to.x && segment.from.y === segment.to.y) continue;`,
+		to: ``,
+		tests: ['tests/graph.test.ts']
+	},
+	{
+		name: `a zero-length wire is only one with equal ends`,
+		file: 'src/graph.ts',
+		from: `segment.from.x === segment.to.x && segment.from.y === segment.to.y) continue;`,
+		to: `segment.from.x === segment.to.x) continue;`,
+		tests: ['tests/graph.test.ts']
+	},
+	{
+		name: `the canvas limit is stated in TikZ units`,
+		file: 'src/graph.ts',
+		from: `(SCHEMATIC_LIMITS.maximumBound - 2 * MARGIN) / SCALE`,
+		to: `(SCHEMATIC_LIMITS.maximumBound - 2 * MARGIN)`,
+		tests: ['tests/graph.test.ts']
+	},
+	{
+		name: `an overlap hides its endpoints`,
+		file: 'src/graph.ts',
+		from: `if (overlapping) return true;`,
+		to: ``,
+		tests: ['tests/graph.test.ts']
+	},
+	{
+		name: `an endpoint inside a segment is ambiguous geometry`,
+		file: 'src/graph.ts',
+		from: `	return inside;`,
+		to: `	return false;`,
+		tests: ['tests/graph.test.ts']
+	},
+	{
+		name: `an endpoint at the start of a segment is not inside it`,
+		file: 'src/graph.ts',
+		from: `if (group[middle]!.low < at)`,
+		to: `if (group[middle]!.low <= at)`,
+		tests: ['tests/graph.test.ts']
+	},
+	{
+		name: `an endpoint at the end of a segment is not inside it`,
+		file: 'src/graph.ts',
+		from: `at < group[low - 1]!.high`,
+		to: `at <= group[low - 1]!.high`,
+		tests: ['tests/graph.test.ts']
+	},
+	{
+		name: `the search looks left of the insertion point`,
+		file: 'src/graph.ts',
+		from: `if (low > 0 && at < group[low - 1]!.high)`,
+		to: `if (low < group.length && at < group[low]!.high)`,
+		tests: ['tests/graph.test.ts']
+	},
+	{
+		name: `an endpoint is reported once`,
+		file: 'src/graph.ts',
+		from: `inside = true; break; }`,
+		to: `inside = true; }`,
+		tests: ['tests/graph.test.ts']
+	},
+	{
+		name: `the direction budget is inclusive`,
+		file: 'src/graph.ts',
+		from: `if (lines.size === LIMITS.directions)`,
+		to: `if (lines.size === LIMITS.directions + 1)`,
+		tests: ['tests/graph.test.ts']
+	},
+	{
+		name: `the direction ceiling is stable`,
+		file: 'src/limits.ts',
+		from: `directions: 64,`,
+		to: `directions: 63,`,
+		tests: ['tests/graph.test.ts']
 	}
 ];
 

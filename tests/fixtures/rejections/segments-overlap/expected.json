@@ -1,0 +1,10 @@
+[
+  {
+    "code": "geometry",
+    "message": "Segments overlap along their length; separate them or join them at explicit endpoints.",
+    "line": 2,
+    "column": 22,
+    "endColumn": 24,
+    "severity": "error"
+  }
+]

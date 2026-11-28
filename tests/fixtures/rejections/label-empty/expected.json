@@ -1,0 +1,10 @@
+[
+  {
+    "code": "syntax",
+    "message": "Expected a non-empty label; correct the statement before converting it.",
+    "line": 2,
+    "column": 16,
+    "endColumn": 17,
+    "severity": "error"
+  }
+]

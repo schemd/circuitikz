@@ -1,7 +1,7 @@
 [
   {
     "code": "unsupported",
-    "message": "Conversion is not implemented yet; this milestone validates the supported input syntax only.",
+    "message": "A circuit without components or junctions is not supported; use the documented CircuiTikZ subset instead.",
     "line": 1,
     "column": 1,
     "endColumn": 7,

@@ -1,0 +1,11 @@
+{
+  "origin": "REQUIREMENTS.md R-4.3, R-5.1, R-5.2",
+  "fence": "schemd bounds=\"360x360\" title=\"Converted CircuiTikZ circuit\"",
+  "note": "A wire path that ends at the component's own start joins both of its terminals into one net. The graph keeps that net, and the single connection runs the way the pen went: from R1.out back to R1.in (R-5.1.3, R-5.2.2).",
+  "connectivity": [
+    [
+      "R1.in",
+      "R1.out"
+    ]
+  ]
+}

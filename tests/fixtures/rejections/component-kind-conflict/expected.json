@@ -1,0 +1,10 @@
+[
+  {
+    "code": "syntax",
+    "message": "Expected exactly one component kind in to[...]; correct the statement before converting it.",
+    "line": 2,
+    "column": 18,
+    "endColumn": 19,
+    "severity": "error"
+  }
+]

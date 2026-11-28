@@ -58,7 +58,9 @@ Available now: the parser and the topology oracle. `convertCircuitikz` reads the
 problem it finds, but it does not convert yet. For input with no problem, it returns a single
 `unsupported` error saying so. Named coordinates, `+`/`++` and `cycle` are resolved as TikZ resolves
 them, so an undefined or duplicate name, `cycle` after a `to[...]`, and a relative point that
-overflows are reported too.
+overflows are reported too. Each `to[...]` is then read as a part and its label, and the circuit graph is
+built, so a diagonal or too-short part, overlapping segments, an endpoint inside another segment, a
+wire stub and a wire connected to nothing are reported before any schemd source exists.
 
 | Export | What it does |
 | --- | --- |

@@ -1,0 +1,10 @@
+[
+  {
+    "code": "limit",
+    "message": "The canvas extent limit is 10484.16; draw the circuit within that many TikZ units across and down.",
+    "line": 1,
+    "column": 1,
+    "endColumn": 7,
+    "severity": "error"
+  }
+]

@@ -22,9 +22,13 @@ const BUDGETS = [
 		entry: (path) => `import * as converter from ${JSON.stringify(path)};globalThis.schemdCircuitikz=converter;`,
 		/* M1's budget from R-8.5.4. 0.0.0 measured 538 B gzip / 455 B brotli. The
 		   parser, coordinate literals, host options and convertCircuitikz measured
-		   4186 B gzip / 3716 B brotli; with the coordinate resolver, 4705 B / 4206 B. */
-		maxGzipBytes: 5 * 1024,
-		maxBrotliBytes: 5 * 1024
+		   4186 B gzip / 3716 B brotli; with the coordinate resolver, 4705 B / 4206 B.
+		   M2's budget from R-8.5.4, raised by its first pull request: the component
+		   table, label transcription and circuit graph (nets, junctions, overlap and
+		   dead-end checks, connections) measured 7895 B gzip / 7099 B brotli, +3190 B
+		   gzip. The emitter and the verification oracle must fit in what is left. */
+		maxGzipBytes: 9 * 1024,
+		maxBrotliBytes: 9 * 1024
 	}
 ];
 

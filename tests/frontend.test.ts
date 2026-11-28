@@ -385,7 +385,7 @@ describe('public M1 API', () => {
 		expect(d.items[0]?.message).toBe('later line');
 	});
 	it('returns the documented pending diagnostic, never partial output', () => {
-		expect(convertCircuitikz(wrap('\\draw (0,0) -- (2,0);'))).toEqual({ ok: false, source: undefined, fence: undefined, sourceMap: [], diagnostics: [{ code: 'unsupported', severity: 'error', message: 'Conversion is not implemented yet; this milestone validates the supported input syntax only.', line: 1, column: 1, endColumn: 7 }] });
+		expect(convertCircuitikz(wrap('\\draw (0,0) to[R] (2,0);'))).toEqual({ ok: false, source: undefined, fence: undefined, sourceMap: [], diagnostics: [{ code: 'unsupported', severity: 'error', message: 'Conversion is not implemented yet; this milestone validates the supported input syntax only.', line: 1, column: 1, endColumn: 7 }] });
 	});
 
 	it('warns only about explicitly documented presentation keys and escalates in strict mode', () => {

@@ -1,0 +1,10 @@
+[
+  {
+    "code": "unsupported",
+    "message": "Option v is not supported; use the documented CircuiTikZ subset instead.",
+    "line": 2,
+    "column": 18,
+    "endColumn": 19,
+    "severity": "error"
+  }
+]

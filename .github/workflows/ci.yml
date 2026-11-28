@@ -101,9 +101,10 @@ jobs:
         run: npm pack --dry-run
 
       # Tests import from src; this is the only step that proves the built
-      # files load under Node.js the way a host will load them (R-8.6.2).
-      - name: Import the built package
-        run: node --input-type=module -e "const m = await import('./dist/index.js'); if (typeof m.connectivityOf !== 'function') throw new Error('dist/index.js is missing connectivityOf');"
+      # files load under Node.js, and bundle for a browser or worker, the way
+      # a host will load them (R-8.6.2, R-2.2.2).
+      - name: Smoke-test the built package
+        run: bun run test:smoke
 
       - name: Verify release commit belongs to main
         if: startsWith(github.ref, 'refs/tags/v')

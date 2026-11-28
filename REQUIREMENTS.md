@@ -99,9 +99,9 @@ hand-written and scans each character a bounded number of times. No regular expr
 unbounded input. *Proved by the fuzz contract (R-8.3) and the pathological inputs in R-8.3.4.*
 
 **R-2.5.3** Every resource has a ceiling with a diagnostic (`limit`), checked before the work it
-bounds: source length, statements, path elements per statement, components, junctions, and brace
-nesting depth. The defaults are constants in one module, each with a test at the ceiling and one past
-it.
+bounds: source length, statements, path elements per statement, components, junctions, distinct
+segment directions, and brace nesting depth. The defaults are constants in one module, each with a
+test at the ceiling and one past it.
 
 ---
 

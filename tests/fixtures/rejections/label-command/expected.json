@@ -1,0 +1,10 @@
+[
+  {
+    "code": "unsupported",
+    "message": "Label command \\frac is not supported; use the documented CircuiTikZ subset instead.",
+    "line": 2,
+    "column": 19,
+    "endColumn": 24,
+    "severity": "error"
+  }
+]

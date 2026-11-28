@@ -1,0 +1,10 @@
+[
+  {
+    "code": "geometry",
+    "message": "Component segment (0,0) to (0,0) has zero length (endpoints in hundredths of a TikZ unit); use an axis-aligned segment at least 0.84 TikZ units long.",
+    "line": 2,
+    "column": 13,
+    "endColumn": 18,
+    "severity": "error"
+  }
+]

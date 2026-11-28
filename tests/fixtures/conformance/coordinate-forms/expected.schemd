@@ -1,0 +1,5 @@
+resistor:R1 "R1" at (180, 380) #amber
+capacitor:C1 "C1" at (180, 80) #cyan [orientation=left]
+
+R1.out -> C1.in #amber [ortho]
+C1.out -> R1.in #cyan [ortho]

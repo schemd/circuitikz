@@ -1,0 +1,10 @@
+[
+  {
+    "code": "limit",
+    "message": "The wire directions limit is 64; draw the wires horizontally or vertically.",
+    "line": 3,
+    "column": 1012,
+    "endColumn": 1014,
+    "severity": "error"
+  }
+]

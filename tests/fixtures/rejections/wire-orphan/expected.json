@@ -1,0 +1,18 @@
+[
+  {
+    "code": "unsupported",
+    "message": "A circuit without components or junctions is not supported; use the documented CircuiTikZ subset instead.",
+    "line": 1,
+    "column": 1,
+    "endColumn": 7,
+    "severity": "error"
+  },
+  {
+    "code": "unsupported",
+    "message": "A wire connected to nothing is not supported; use the documented CircuiTikZ subset instead.",
+    "line": 2,
+    "column": 13,
+    "endColumn": 15,
+    "severity": "error"
+  }
+]

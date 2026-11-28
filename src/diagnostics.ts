@@ -56,6 +56,22 @@ export function presentation(d: Diagnostics, key: string, span: Span): void {
 	d.add('unsupported', `Presentation option ${key} was ignored; schemd draws its own style.`, span, true);
 }
 
+function geometry(d: Diagnostics, message: string, span: Span): void {
+	d.add('geometry', message, span);
+}
+
+export function componentGeometry(d: Diagnostics, from: string, to: string, reason: string, span: Span): void {
+	geometry(d, `Component segment ${from} to ${to} ${reason} (endpoints in hundredths of a TikZ unit); use an axis-aligned segment at least 0.84 TikZ units long.`, span);
+}
+
+export function overlap(d: Diagnostics, span: Span): void {
+	geometry(d, 'Segments overlap along their length; separate them or join them at explicit endpoints.', span);
+}
+
+export function interior(d: Diagnostics, point: string, span: Span): void {
+	geometry(d, `Endpoint ${point} lies inside another segment (hundredths of a TikZ unit), which makes no connection; split that segment at the point or move the endpoint.`, span);
+}
+
 export function pending(d: Diagnostics, span: Span): void {
 	d.add('unsupported', 'Conversion is not implemented yet; this milestone validates the supported input syntax only.', span);
 }

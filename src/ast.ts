@@ -47,6 +47,8 @@ export interface Point {
 }
 
 export interface ResolvedSegment {
+	readonly fromSpan: Span;
+	readonly toSpan: Span;
 	readonly from: Point;
 	readonly to: Point;
 	readonly operation: '--' | '|-' | '-|' | 'to';

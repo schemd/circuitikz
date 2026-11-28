@@ -1,0 +1,10 @@
+[
+  {
+    "code": "syntax",
+    "message": "Expected exactly one label-bearing option; correct the statement before converting it.",
+    "line": 2,
+    "column": 22,
+    "endColumn": 23,
+    "severity": "error"
+  }
+]

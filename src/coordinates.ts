@@ -99,6 +99,7 @@ export function resolveCoordinates(tree: SyntaxTree, diagnostics: Diagnostics): 
 			define(statement.name, resolve(statement.at, base, first), statement.span);
 			continue;
 		}
+		let currentSpan = statement.span;
 		let afterTo = false;
 		for (const element of statement.elements) {
 			if (element.kind === 'name') {
@@ -114,9 +115,10 @@ export function resolveCoordinates(tree: SyntaxTree, diagnostics: Diagnostics): 
 			if (element.kind === 'move') { first = point; afterTo = false; }
 			else if (element.operation === 'to') afterTo = true;
 			if (element.kind === 'segment' && current !== undefined && point !== undefined) {
-				segments.push({ from: current, to: point, operation: element.operation, keys: element.keys, span: element.span });
+				segments.push({ fromSpan: currentSpan, toSpan: element.at.span, from: current, to: point, operation: element.operation, keys: element.keys, span: element.span });
 			}
 			current = point;
+			currentSpan = element.at.span;
 			if (element.at.kind !== 'point' || element.at.mode !== '+') base = point;
 		}
 	}

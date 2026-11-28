@@ -1,0 +1,15 @@
+{
+  "origin": "REQUIREMENTS.md R-4.3, R-5.1, R-5.2",
+  "fence": "schemd bounds=\"460x460\" title=\"Converted CircuiTikZ circuit\"",
+  "note": "A named coordinate in cm, ++ after to[...], a name given mid-path, |- to a + point (which leaves the base at B, so the next ++(0,3) lands at (2,3)), and a -| whose first leg has zero length. R1.out reaches C1.in through the corner and a diagonal wire; C1.out returns to A = R1.in (R-4.3).",
+  "connectivity": [
+    [
+      "R1.in",
+      "C1.out"
+    ],
+    [
+      "R1.out",
+      "C1.in"
+    ]
+  ]
+}

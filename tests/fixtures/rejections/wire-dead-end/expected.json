@@ -1,0 +1,10 @@
+[
+  {
+    "code": "unsupported",
+    "message": "A wire with an unconnected end is not supported; use the documented CircuiTikZ subset instead.",
+    "line": 2,
+    "column": 25,
+    "endColumn": 27,
+    "severity": "error"
+  }
+]
